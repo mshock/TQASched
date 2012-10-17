@@ -64,7 +64,9 @@ for my $worksheet ( $workbook->worksheets() ) {
 			last unless extract_row( $col, $cell, $row_data );
 
 		}
-		next unless $row_data;
+		# skip rows that have no values, degenerates (ha)
+		next unless %{$row_data};
+		# attempt to store rows that had values
 		store_row( $weekday_code, $row_data )
 		  or warn "failed to store row $row for $weekday\n";
 	}
@@ -126,8 +128,8 @@ sub extract_row {
 		when (/^6$/) {
 			$row_href->{comment} = $value;
 		}
-
-   # TODO: handle is_legacy flag or checkbox column - waiting on new spreadsheet
+		# outside of parsing scope
+		# return and go to next row
 		default { return };
 	}
 	return 1;
@@ -139,7 +141,7 @@ sub store_row {
 	my $row_href     = shift;
 
 	# don't store row if not scheduled for today
-	# not an error so return true
+	# but not an error so return true
 	return 1
 	  unless $row_href->{filedate}
 		  && $row_href->{update}
@@ -148,7 +150,7 @@ sub store_row {
 
 	# check if this update name has been seen before
 	my $update_id;
-	unless ( $update_id = get_update( $row_href->{update} ) ) {
+	unless ( $update_id = get_update_id( $row_href->{update} ) ) {
 
 		# if not, insert it into the database
 		my $update_insert = "insert into [TQASched].dbo.[Updates] values 
@@ -190,7 +192,7 @@ sub time2offset {
 }
 
 # get an update's id from name
-sub get_update {
+sub get_update_id {
 	my $name         = shift;
 	my $select_query = "
 		select update_id from [TQASched].dbo.[Updates] 
@@ -263,6 +265,7 @@ pwd=
 sub init_handle {
 	my $db = shift;
 
+	# connecting to master since database may need to be created
 	return
 	  DBI->connect(
 		 sprintf(
@@ -311,17 +314,19 @@ sub check_db {
 	return ( ( $dbh->selectall_arrayref($check_query) )->[0] )->[0];
 }
 
+# drop the database
 sub drop_db {
 	return $dbh->do('drop database TQASched')
 	  or die "could not drop TQASched database\n", $dbh->errstr;
 }
 
-# clear all tables in database
+# clear all update records in database
 sub clear_updates {
 	return $dbh->do('delete from [TQASched].dbo.[Updates]')
 	  or die "error in clearing Updates table\n", $dbh->errstr;
 }
 
+# clear all scheduling records in database
 sub clear_schedule {
 	return $dbh->do('delete from [TQASched].dbo.[Update_Schedule]')
 	  or die "error in clearing Schedule table\n", $dbh->errstr;
@@ -354,11 +359,11 @@ sub usage {
 
 =head1 NAME
 
-TQASched
+TQASched - a tool for monitoring both legacy and DIS feed timeliness in AUH.
 
 =head1 SYNOPSIS
 
-A tool for monitoring both legacy and DIS feed timeliness in AUH.
+perl tqa_sched.pl [optional flags]
 
 =head1 DESCRIPTION
 
@@ -366,12 +371,64 @@ AUH content schedule monitoring tool
 Creates and populates a database with content scheduling data from content scheduling spreadsheet
 run daemon which reads AUH metadata and operator checklists to generate a feed timeliness report
 
-=head1 LICENSE
+=head1 OPTIONS
 
-This program is free software; you can redistribute it and/or modify it under the same terms as Perl itself.
+=over 6
+
+=item B<-c>=I<configpath>
+
+Specify path for config file in the command line.
+Defaults to tqa_sched.pl and is generated automatically if not found.
+
+=item B<-d>
+
+Create a new TQASched database if not already present.
+
+=item B<-h>
+
+Print usage
+
+=item B<-f>=I<schedulepath>
+
+Specify path to Excel scheduling/checklist document 
+
+=back
+
+=head1 FILES
+
+=over 6
+
+=item F<tqa_sched.pl>
+
+This self-documented script.
+It is both a tool and a deamon - 
+the only executable component of the TQASched application.
+Refer to documentation for usage and configuration.
+
+=item F<tqa_sched.conf>
+
+A config file for the database credentials and other options. 
+Path can be specified with -c flag.
+Defaults to tqa_sched.pl and is generated automatically if not found.
+
+=item F<DailyChecklist.xls>
+
+Schedule checklist Excel spreadsheet.
+This is used for either initializing the TQASched database
+or for assigning the I<Filedate> and I<Filenum> of legacy content sets.
+The syntax of this document is strict, see example: F<ExampleChecklist.xls>
+
+=back
 
 =head1 AUTHOR
 
 Matt Shockley
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright 2012 Matt Shockley
+
+This program is free software; you can redistribute it and/or modify 
+it under the same terms as Perl itself.
 
 =cut

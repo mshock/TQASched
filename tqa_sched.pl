@@ -1,5 +1,7 @@
 #! perl -w
 
+package TQASched;
+
 use strict;
 use feature qw(say switch);
 use Getopt::Std qw(getopts);
@@ -7,6 +9,12 @@ use Spreadsheet::ParseExcel;
 use Spreadsheet::ParseExcel::Utility qw(ExcelFmt);
 use Config::Simple;
 use DBI;
+
+# for inheritance later - only for daemon's webserver so far
+our @ISA;
+
+# globals
+my ($daemon_lock);
 
 my %opts;
 getopts( 'c:df:h', \%opts );
@@ -64,8 +72,10 @@ for my $worksheet ( $workbook->worksheets() ) {
 			last unless extract_row( $col, $cell, $row_data );
 
 		}
+
 		# skip rows that have no values, degenerates (ha)
 		next unless %{$row_data};
+
 		# attempt to store rows that had values
 		store_row( $weekday_code, $row_data )
 		  or warn "failed to store row $row for $weekday\n";
@@ -77,7 +87,84 @@ for my $worksheet ( $workbook->worksheets() ) {
 #
 ####################################################################################
 
-# TODO: need an is_legacy checkbox
+
+# run in daemon mode until interrupted
+sub daemon {
+	# length of time to sleep before updating report
+	# in seconds
+	# defaults to 1 minute
+	my $update_freq = $conf{update_frequency} || 60;
+	
+	# fork child http server to host report
+	fork or server();
+	
+	# trap interrupts to prevent exiting mid-update
+	$SIG{'INT'} = 'INT_handler';
+	
+	# run indefinitely
+	# polling spreadsheet and AUH db to update report at specified frequency 
+	while(1) {
+		# lock against interrupt
+		$daemon_lock = 1;
+		
+		# parse spreadsheet and insert new updates
+		
+		# examine AUH metadata and insert new updates
+		
+		
+		# check if interrupts were caught
+		if ($daemon_lock > 1) {
+			say sprintf('update completed, caught %u interrupts during update',$daemon_lock-1);
+			say 'interrupting TQASched services';
+			exit(0);
+		}
+		else {
+			$daemon_lock = 0;
+		}
+		
+		sleep($update_freq);
+	}
+}
+
+# server to be run in another process
+# hosts the report webmon
+sub server {
+	# load webserver module and ISA relationship at runtime in child
+	require HTTP::Server::Simple::CGI;
+	push @ISA, 'HTTP::Server::Simple::CGI';
+	my $server = TQASched->new($conf{http_port} || 80);
+	$server->run();
+	# just in case server ever returns
+	die 'server has returned and is no longer running';
+}
+
+# interrupt (Ctrl+C) signal handler
+# postpones interrupts recieved during update until finished
+sub INT_handler {
+	if ($daemon_lock) {
+		# count the number of interrupts caught
+		# also tracks whether interrupt was caught
+		$daemon_lock++;
+		say 'SIGINT caught, exiting when daemon releases update lock...';
+	}
+	else {
+		# if not locked, business as usual
+		say 'interrupted';
+		exit(0);
+	}
+}
+
+# override request handler for HTTP::Server::Simple
+sub handle_request {
+	my ($self,$cgi) = @_;
+	# parse POST into CLI argument key/value pairs
+	my $params_string = '';
+	for ($cgi->param) {
+		$params_string .= sprintf('--%s=%s ',$_,$cgi->param($_));
+	}
+	print `perl report.pl $params_string`;
+}
+
 # extract row into hash based on column number
 sub extract_row {
 	my ( $col, $cell, $row_href ) = @_;
@@ -91,21 +178,20 @@ sub extract_row {
 			$row_href->{time_block} = $value if $value;
 		}
 
-		# update
+		# update name (needs to be exactly the same every time)
 		when (/^1$/) {
-
-			# skip blank update rows
 			$row_href->{update} = $value ? $value : return;
 		}
 
-		# priority
+		# priority - 'x' if not scheduled for the day
 		when (/^2$/) {
-			$row_href->{priority} = $value;
+			return unless $value;
+			$row_href->{priority} = $value =~ m/x/ ? return : $value;
 		}
 
 		# file date
 		when (/^3$/) {
-
+			return unless $value;
 			# extract unformatted datetime and convert to filedate integer
 			my $time_excel = $cell->unformatted();
 			my $value = ExcelFmt( 'yyyymmdd', $time_excel );
@@ -116,10 +202,13 @@ sub extract_row {
 
 		# file number
 		when (/^4$/) {
-			$row_href->{filenum} = $value ? $value : return;
+			if ($value != 0) {
+				$row_href->{is_legacy} = 1;
+				$row_href->{filenum} = $value ? $value : return;	
+			}
 		}
 
-		# ID - 'x' if not scheduled for the day
+		# ID
 		when (/^5$/) {
 			$row_href->{id} = $value;
 		}
@@ -128,6 +217,7 @@ sub extract_row {
 		when (/^6$/) {
 			$row_href->{comment} = $value;
 		}
+
 		# outside of parsing scope
 		# return and go to next row
 		default { return };
@@ -143,10 +233,9 @@ sub store_row {
 	# don't store row if not scheduled for today
 	# but not an error so return true
 	return 1
-	  unless $row_href->{filedate}
-		  && $row_href->{update}
+	  unless $row_href->{update}
 		  && $row_href->{time_block}
-		  && !$row_href->{id};
+		  && $row_href->{priority};
 
 	# check if this update name has been seen before
 	my $update_id;
@@ -256,7 +345,10 @@ server=
 user=
 pwd=
 # optional configs
-[opts]';
+[opts]
+# update frequency (in seconds) when running as daemon
+update_frequency=60
+http_port=8080';
 	close $conf;
 	return 1;
 }
@@ -304,7 +396,18 @@ sub create_db {
 		time int
 	)"
 	) or die "could not create Update_Schedule table\n", $dbh->errstr;
-	say 'done';
+	$dbh->do(
+		"create table [TQASched].dbo.[Update_History] (
+		hist_id int not null identity(1,1),
+		update_id int not null,
+		sched_id int not null,
+		time int,
+		filedate int,
+		filenum tinyint
+	)"
+	) or die "could not create Update_History table\n", $dbh->errstr;
+	
+	say 'done creating db';
 	return 1;
 }
 
@@ -346,6 +449,7 @@ sub find_sched {
 }
 
 sub usage {
+	pod2usage( -verbose > 1 );
 	print '
 	usage: perl gen_db.pl
 		-c config file specified

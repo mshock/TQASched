@@ -1,0 +1,80 @@
+th {background: #DBD7D5; padding-right: 10; padding-left: 10;}
+
+.header { position: fixed;}
+
+td {padding-left: 20; padding-bottom: 0} 
+
+body { margin: 0;}
+
+.wait_odd {background: #FFFF66}
+
+.wait_even {background: #FFFF00}
+
+.recv_odd {background: #9BFAB7}
+
+.recv_even {background: #33CC33}
+
+.late_odd {background: #FF5050}
+
+.late_even {background: #FF0000}
+
+.error_odd {background: #69B4FF}
+
+.error_even {background: #4767C9}
+
+input.headerunsort {
+border:0;
+padding:0;
+color: inherit;
+background:transparent;
+}
+
+input.headersort {
+border:0;
+padding:0;
+color: inherit;
+background:transparent;
+font-weight:bold;
+}
+
+
+tr.lateborder1 td:first-child { border-left: 4px solid #FF0000; }
+tr.lateborder1 td:last-child { border-right: 4px solid #FF0000; }
+
+tr.lateborder2 td {
+	border-top: 4px solid #FF0000;
+	border-bottom: 4px solid #FF0000;
+}
+
+tr.lateborder3 td {
+	border-bottom: 4px solid #FF0000;
+}
+
+.laterecvex {
+	border: 3px solid #FF0000;
+	background: #33CC33
+}
+
+.legend {
+	position:absolute;
+	margin-left:70%;
+	background: #E6E2E1;
+	border: 1px solid black;
+	font-size: x-small;
+}
+
+.right_score {
+	border-left: 1px dashed black;
+}
+
+.bottom_score {
+	border-top: 1px dashed black;
+}
+
+.score {
+	position:absolute;
+	margin-left:16%;
+	background: #E6E2E1;
+	border: 1px solid black;
+	font-size: x-small;
+}

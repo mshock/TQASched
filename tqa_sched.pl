@@ -66,7 +66,6 @@ server() if $opts{t};
 # run in daemon (server) mode
 daemon() if $opts{s};
 
-
 ####################################################################################
 #	subs
 #
@@ -239,10 +238,10 @@ sub daemon {
 		$daemon_lock = 1;
 
 		# parse spreadsheet and insert new updates
-		#refresh_xls();
+		refresh_xls();
 
 		# examine AUH metadata and insert new updates
-		refresh_auh();
+		#refresh_auh();
 
 		# check if interrupts were caught
 		if ( $daemon_lock > 1 ) {
@@ -268,6 +267,7 @@ sub server {
 	#require HTTP::Server::Simple::CGI;
 	use base qw(HTTP::Server::Simple::CGI);
 	use HTTP::Server::Simple::Static;
+
 	#push @ISA, 'HTTP::Server::Simple::CGI';
 	my $server = TQASched->new(8000);
 	$server->run();
@@ -303,13 +303,13 @@ sub handle_request {
 	for ( $cgi->param ) {
 		$params_string .= sprintf( '--%s=%s ', $_, $cgi->param($_) );
 	}
-	
+
 	# static serve web directory for css, charts (later, ajax)
 	if ( $cgi->path_info =~ m/\.(css|xls|js|ico)/ ) {
 		$self->serve_static( $cgi, './web' );
 		return;
 	}
-	
+
 	print `perl report.pl $params_string`;
 }
 
@@ -479,12 +479,10 @@ sub now_offset {
 sub get_sched_id {
 	my ($update_id) = @_;
 
-	my $res = (
-		$dbh_sched->selectrow_arrayref( "
+	my ($res) = $dbh_sched->selectrow_array( "
 		select top 1 sched_id from [TQASched].dbo.[Update_Schedule]
 		where update_id = '$update_id'
-	" )
-	)[0];
+	" );
 	warn "\tno schedule id found for $update_id\n" unless $res;
 	return $res;
 }
@@ -556,8 +554,7 @@ sub refresh_auh {
 				and DataFeedId = '$feed_id'
 				order by ExecutionDateTime desc
 			";
-			
-			
+
 			my ($trans_num) = $dbh_dis->selectrow_array($dis_trans)
 				or warn
 				"\tno transaction # found for enum feed $name, skipping\n"
@@ -597,16 +594,15 @@ sub refresh_auh {
 			#	say "\tmust be previous day $name";
 			#	next;
 			#}
-			
+
 			# compare transaction execution time to schedule offset
-			my $cmp_result	= comp_offsets( $exec_end, $offset );
+			my $cmp_result = comp_offsets( $exec_end, $offset );
 			my $trans_offset = datetime2offset($exec_end);
-			
+
 			# if it's within an hour of the scheduled time, mark as on time
 			# could also be early
 			if ( $cmp_result == 0 ) {
-				say
-					"ontime $name $exec_end offset: $offset";
+				say "ontime $name $exec_end offset: $offset";
 				update_history( { update_id    => $update_id,
 								  sched_id     => $sched_id,
 								  trans_offset => $trans_offset,
@@ -620,8 +616,7 @@ sub refresh_auh {
 			# otherwise it either has not come in or it is late
 			# late
 			elsif ( $cmp_result == 1 ) {
-				say
-					"late $name $exec_end to offset: $offset";
+				say "late $name $exec_end to offset: $offset";
 				update_history( { update_id    => $update_id,
 								  sched_id     => $sched_id,
 								  trans_offset => $trans_offset,
@@ -659,12 +654,13 @@ sub comp_offsets {
 
 	#my ( $trans_offset, $date_flag ) = datetime2offset($trans_offset_ts);
 
-	my $parsed_trans = ParseDate($trans_offset_ts);		
+	my $parsed_trans = ParseDate($trans_offset_ts);
 	my $sched_string = offset2time($sched_offset);
-	
+
 	my $parsed_sched = ParseDate("$sched_string")
-			or warn "DM parser error\n";;
+		or warn "DM parser error\n";
 	my $schedule_adjust = 6;
+
 	# Morning adjust (end of previous day, CST)
 	# GMT 900  - 1079
 	# CST 1260 - 1439
@@ -679,7 +675,7 @@ sub comp_offsets {
 	# CST 0    - 359
 	# TODO: verify that this is the current day
 	elsif ( $sched_offset >= 0 && $sched_offset < 360 ) {
-		
+
 	}
 
 	# Evening adjust (next day, GMT)
@@ -687,40 +683,45 @@ sub comp_offsets {
 	# CST 360  - 1259
 	# TODO: check that this is the next day GMT
 	elsif ( $sched_offset >= 360 && $sched_offset < 1260 ) {
-		
+
 	}
 
 	# adjust CST to GMT
-	$parsed_sched = DateCalc("$sched_string", "in $schedule_adjust hours")
+	$parsed_sched = DateCalc( "$sched_string", "in $schedule_adjust hours" )
 		or warn "parse 4\n";
 
-	my $date_delta = DateCalc($parsed_sched, $parsed_trans)
+	my $date_delta = DateCalc( $parsed_sched, $parsed_trans )
 		or warn "parse 5\n";
-	
-	my $hrs_diff = Delta_Format($date_delta, 2, '%ht')
+
+	my $hrs_diff = Delta_Format( $date_delta, 2, '%ht' )
 		or warn "parse 6\n";
-		
+
 	$hrs_diff = -$hrs_diff if $trans_offset_ts =~ m/1900-01-01/;
 	say $hrs_diff;
+
 	# arrived a period after the late threshold, late
-	if ($hrs_diff >= $late_threshold) {
+	if ( $hrs_diff >= $late_threshold ) {
 		return 1;
 	}
+
 	# arrived earlier in the day
-	elsif ($hrs_diff < $late_threshold && $hrs_diff >= -24) {
+	elsif ( $hrs_diff < $late_threshold && $hrs_diff >= -24 ) {
 		return 0;
 	}
+
 	# assume this is previous transaction, has not arrived yet today
 	# check current time against schedule to see if it was late
 	else {
-		my $now_gmt = DateCalc('now', 'in 6 hours');
-		$date_delta = DateCalc($parsed_sched, $now_gmt);
-		$hrs_diff = Delta_Format($date_delta, 2, '%ht');
+		my $now_gmt = DateCalc( 'now', 'in 6 hours' );
+		$date_delta = DateCalc( $parsed_sched, $now_gmt );
+		$hrs_diff = Delta_Format( $date_delta, 2, '%ht' );
 		say "still waiting $hrs_diff";
+
 		# late, but not received yet
-		if ($hrs_diff >= $late_threshold) {
+		if ( $hrs_diff >= $late_threshold ) {
 			return 1;
 		}
+
 		# still waiting
 		return -1;
 	}
@@ -729,7 +730,7 @@ sub comp_offsets {
 sub offset2time {
 	my $offset = shift;
 
-	my $hours = int( $offset / 60 );
+	my $hours   = int( $offset / 60 );
 	my $minutes = $offset - $hours * 60;
 	return sprintf '%02u:%02u', $hours, $minutes;
 }
@@ -802,11 +803,13 @@ sub update_history {
 
 	# recvd already, return
 	if ( $fd && $fn ) {
+		say "already stored $update_id : $sched_id";
 		return;
 	}
 
 # already an entry in history (late), update with newly found filedate filenum
 	elsif ( defined $hist_id && ( $fd_q && $fn_q ) && ( !$fd || !$fn ) ) {
+		say "$update_id updating";
 		$dbh_sched->do( "
 			update TQASched.dbo.Update_History
 			set filedate = $fd_q, filenum = $fn_q 
@@ -817,7 +820,7 @@ sub update_history {
 
 	# not recvd and never seen, insert new record w/ filedate and filenum
 	elsif ( !$hist_id && $fd_q && $fn_q ) {
-
+		say "$update_id inserting";
 		# retrieve filedate and filenum from TQALic on nprod1
 		#my ( $fd, $fn ) = get_fdfn($trans_num);
 		my $insert_hist = "
@@ -957,49 +960,68 @@ sub refresh_xls {
 					&& $row_data->{filedate}
 					&& $row_data->{filenum};
 
-			my $update_id      = get_update_id( $row_data->{update} );
-			my $sched_id       = get_sched_id($update_id);
-			my ($sched_offset) = $dbh_sched->selectrow_array( "
-				select time from TQASched.dbo.Update_Schedule
-				where sched_id = $sched_id
-			" );
-			my $trans_offset = now_offset();
+			my $name        = $row_data->{update};
+			my $update_id   = get_update_id($name);
+			my $sched_query = "
+				select time, sched_id 
+				from TQASched.dbo.Update_Schedule us
+				where update_id = $update_id
+				and weekday = '$weekday_code'
+			";
 
+			#say $sched_query and die;
+			my ( $sched_offset, $sched_id )
+				= $dbh_sched->selectrow_array($sched_query);
+
+			unless ($sched_offset) {
+				warn "no schedule entry for $name : $update_id : $sched_id\n";
+				next;
+			}
+
+			my $exec_end     = gmtime(time);
+			my $trans_offset = now_offset();
 			my $ontime;
 
-			# within ontime bounds
-			if ( $trans_offset + $tz_offset <= $sched_offset + $late_threshold
-				 || $trans_offset + $tz_offset
-				 >= $sched_offset - $late_threshold )
-			{
+			# compare transaction execution time to schedule offset
+			my $cmp_result = comp_offsets( $exec_end, $sched_offset );
 
-				$ontime = 1;
-
-			}
-			elsif (
-				$trans_offset + $tz_offset > $sched_offset + $late_threshold )
-			{
-				$ontime = 0;
-			}
-
-			# still waiting on this one... but it was super early
-			elsif (
-				$trans_offset + $tz_offset < $sched_offset - $late_threshold )
-			{
-				$ontime = 1;
+			# if it's within an hour of the scheduled time, mark as on time
+			# could also be early
+			if ( $cmp_result == 0 ) {
+				say "ontime $name $exec_end offset: $sched_offset";
+				update_history( { update_id    => $update_id,
+								  sched_id     => $sched_id,
+								  trans_offset => $trans_offset,
+								  late         => 'N',
+								  filedate     => $row_data->{filedate},
+								  filenum      => $row_data->{filenum}
+								}
+				);
 			}
 
-			# attempt to store rows that had values
-			update_history(
-				{  update_id    => $update_id,
-				   sched_id     => $sched_id,
-				   trans_offset => $trans_offset,
-				   ontime       => $ontime,
-				   filedate     => $row_data->{filedate},
-				   filenum      => $row_data->{filenum}
+			# otherwise it either has not come in or it is late
+			# late
+			elsif ( $cmp_result == 1 ) {
+				say "late $name $exec_end to offset: $sched_offset";
+				update_history( { update_id    => $update_id,
+								  sched_id     => $sched_id,
+								  trans_offset => $trans_offset,
+								  late         => 'Y',
+								  filedate     => $row_data->{filedate},
+								  filenum      => $row_data->{filenum}
+								}
+				);
+			}
 
-				}
-			);
+			# possibly just not recvd yet
+			elsif ( $cmp_result == -1 ) {
+				say "waiting on $name, last trans: $exec_end";
+			}
+			else {
+				warn
+					"\tFAILED transaction offset sanity check: $name $sched_offset\n";
+				next;
+			}
 		}
 	}
 }

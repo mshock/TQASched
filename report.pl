@@ -10,6 +10,8 @@ use Time::Local qw(timegm);
 use Getopt::Long qw(GetOptions);
 use Config::Simple;
 
+my $refresh = 0;
+
 my $cfg       = new Config::Simple('tqa_sched.conf');
 my $sched_db  = $cfg->param( -block => 'sched_db' );
 my $dbh_sched = init_handle($sched_db);
@@ -31,7 +33,7 @@ print_thead(
 		Feed
 		SchedTime
 		RecvdTime
-		Status
+		Update
 		Timestamp
 		)
 );
@@ -46,10 +48,13 @@ print_footer();
 ######################################################
 
 sub print_header {
+	my $header_refresh
+		= $refresh ? "<meta http-equiv='refresh' content='300' >" : '<!-- auto refresh not enabled -->';
+
 	say "
 <html>
 	<head>
-	<meta http-equiv='refresh' content='300' >
+	$header_refresh
 	<title>Monitor :: TQASched</title>
 	<link rel='stylesheet' type='text/css' href='styles.css' />
 	</head>
@@ -122,9 +127,10 @@ sub print_table {
 		#say "fetched row for $sched_id";
 		# this has been seen for today, has history record
 
-		my ( $row_class, $status, $sched_time, $recvd_time, $daemon_ts )
+		my ( $row_class,  $status,    $sched_time,
+			 $recvd_time, $daemon_ts, $update )
 			= row_info( $row_count, $late, $hist_id, $sched_offset,
-						$hist_offset, $hist_ts );
+						$hist_offset, $hist_ts, $filedate, $filenum );
 
 		#say "found result: $hist_id";
 		say "
@@ -132,7 +138,7 @@ sub print_table {
 			<td>$name</td>
 			<td>$sched_time</td>
 			<td>$recvd_time</td>
-			<td>$status</td>
+			<td>$update</td>
 			<td>$daemon_ts</td>
 		</tr>";
 	}
@@ -141,18 +147,20 @@ sub print_table {
 
 # assign a style to row based on count
 sub row_info {
-	my ( $row_count, $late, $hist_id, $sched_offset, $hist_offset, $hist_ts )
+	my ( $row_count, $late, $hist_id, $sched_offset, $hist_offset, $hist_ts,
+		 $filedate, $filenum )
 		= @_;
 	my $row_parity = $row_count % 2;
 
-	my $sched_time = offset2time($sched_offset);
+	my $sched_time = offset2time($sched_offset) . ' CST';
 
 	# if there is a history record, it can be ontime or late
-	my ( $status, $daemon_ts, $recvd_time );
+	my ( $status, $daemon_ts, $recvd_time, $update );
 	if ($hist_id) {
-		$status     = $status eq 'N' ? 'recvd' : 'late';
+		$status     = $late eq 'N' ? 'recv' : 'late';
 		$recvd_time = offset2time($hist_offset) . ' GMT';
 		$daemon_ts  = $hist_ts;
+		$update     = "$filedate-$filenum";
 	}
 
 	# no history record, still waiting
@@ -160,11 +168,13 @@ sub row_info {
 		$recvd_time = 'N/A';
 		$status     = 'wait';
 		$daemon_ts  = 'N/A';
+		$update     = 'N/A';
 	}
 
 	my $row_class = $status . ( $row_parity ? '_even' : '_odd' );
 
-	return ( $row_class, $status, $sched_time, $recvd_time, $daemon_ts );
+	return ( $row_class, $status, $sched_time, $recvd_time, $daemon_ts,
+			 $update );
 }
 
 sub print_footer {

@@ -238,10 +238,13 @@ sub daemon {
 		$daemon_lock = 1;
 
 		# parse spreadsheet and insert new updates
+		say 'polling spreadsheet for legacy updates';
 		refresh_xls();
 
+		say 'polling dbs for DIS updates';
+
 		# examine AUH metadata and insert new updates
-		#refresh_auh();
+		refresh_auh();
 
 		# check if interrupts were caught
 		if ( $daemon_lock > 1 ) {
@@ -523,7 +526,7 @@ sub refresh_auh {
 			= @{$update_aref};
 
 		# get build number (optional) from feed name
-		my ($build_num) = $name =~ m/#(\d+)/;
+		my ( $stripped_name, $build_num ) = $name =~ m/(.*)#(\d+)/;
 
 # double duty query
 # gets all needed info for non-enumerated feeds
@@ -542,7 +545,27 @@ sub refresh_auh {
 		# if this is an enumerated feed
 		# check the last execution time of that build
 		# in the correct DIS server
+		my $backdate_updates;
 		if ($build_num) {
+
+			# backdate builds packaged in the same UPD
+			my $backdate_query = "
+				select us.sched_id, u.name, u.update_id, uh.filedate
+				from tqasched.dbo.update_schedule us
+				join tqasched.dbo.updates u
+					on u.update_id = us.update_id
+				left join tqasched.dbo.update_history uh
+					on uh.sched_id = us.sched_id
+					and DateDiff(dd, [timestamp], GETUTCDATE()) < 1
+				where us.weekday = '$current_wd'
+				and u.name LIKE '$stripped_name%'
+			";
+
+			#say $backdate_query;
+
+			$backdate_updates
+				= $dbh_sched->selectall_arrayref($backdate_query);
+
 			my $dbh_dis = sender2dbh($sender);
 
 			# retrieve last transaction number for this build number
@@ -611,6 +634,8 @@ sub refresh_auh {
 								  filenum      => $fn
 								}
 				);
+				backdate( $backdate_updates, $trans_offset, 'N', $fd, $fn,
+						  $build_num, $sched_id );
 			}
 
 			# otherwise it either has not come in or it is late
@@ -625,6 +650,8 @@ sub refresh_auh {
 								  filenum      => $fn
 								}
 				);
+				backdate( $backdate_updates, $trans_offset, 'Y', $fd, $fn,
+						  $build_num, $sched_id );
 			}
 
 			# possibly just not recvd yet
@@ -643,6 +670,65 @@ sub refresh_auh {
 		}
 
 	}
+}
+
+# update all older builds issued in the same update
+sub backdate {
+	my ( $backdate_updates, $trans_offset, $late, $fd, $fn, $build_num,
+		 $orig_sched_id )
+		= @_;
+
+	for my $backdate_rowaref ( @{$backdate_updates} ) {
+		my ( $sched_id, $name, $update_id, $filedate )
+			= @{$backdate_rowaref};
+		my ($bn) = $name =~ m/#(\d+)/;
+
+# only backdate earlier build numbers which have no history yet and are scheduled for earlier in the day
+		next
+			unless $bn < $build_num
+				&& !$filedate
+				&& $orig_sched_id > $sched_id;
+		say "backdating $name - $bn";
+		update_history( { update_id    => $update_id,
+						  sched_id     => $sched_id,
+						  trans_offset => $trans_offset,
+						  late         => $late,
+						  filedate     => $fd,
+						  filenum      => $fn
+						}
+		);
+	}
+}
+
+# verify that an offset falls earlier in the day (based on spreadsheet days)
+sub offset_before {
+	my ( $orig, $curr ) = @_;
+
+	if ( 1260 <= $orig && $orig < 1440 ) {
+		if ( 1260 <= $curr && $curr < 1440 && $curr <= $orig ) {
+			return 1;
+		}
+	}
+
+	# Afternoon adjust (current day, both CST and GMT)
+	# GMT 1080 - 1439
+	# CST 0    - 359
+	elsif ( $orig >= 0 && $orig < 360 ) {
+		if ( $curr >= 0 && $curr < 360 && $curr <= $orig ) {
+			return 1;
+		}
+	}
+
+	# Evening adjust (next day, GMT)
+	# GMT 0    - 840
+	# CST 360  - 1259
+	elsif ( $orig >= 360 && $orig < 1260 ) {
+		if ( $orig >= 360 && $orig < 1260 && $curr <= $orig ) {
+			return 1;
+		}
+	}
+
+	return 0;
 }
 
 # compares offsets for timezone and day diff
@@ -821,6 +907,7 @@ sub update_history {
 	# not recvd and never seen, insert new record w/ filedate and filenum
 	elsif ( !$hist_id && $fd_q && $fn_q ) {
 		say "$update_id inserting";
+
 		# retrieve filedate and filenum from TQALic on nprod1
 		#my ( $fd, $fn ) = get_fdfn($trans_num);
 		my $insert_hist = "

@@ -10,6 +10,7 @@ use Spreadsheet::ParseExcel::Utility qw(ExcelFmt);
 use Config::Simple;
 use DBI;
 use Date::Manip qw(ParseDate DateCalc Delta_Format UnixDate);
+use Pod::Usage qw(pod2usage);
 
 # opts d,i,e for initialization
 # opt s for daemon mode (with webserver)
@@ -32,6 +33,7 @@ getopts( 'c:def:hist', \%opts );
 ( usage() and exit ) if $opts{h};
 
 my $conf_file = $opts{c} || 'tqa_sched.conf';
+my $remote_checklist = '\\\\10.16.40.216\\dataops\\Matt';
 
 say 'parsing config file...';
 
@@ -41,20 +43,14 @@ my ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
 ) = load_conf($conf_file);
 
 # get excel file containing schedule info
-my $sched_xls = $opts{f} || find_sched();
+my $sched_xls = $opts{f} || find_sched('.');
 
 say 'initializing database handles...';
 
-# initialize database handle
-my $dbh_sched = init_handle($sched_db);
-my $dbh_auh   = init_handle($auh_db);
-my $dbh_prod1 = init_handle($prod1_db);
-my $dbh_dis1  = init_handle($dis1_db);
-my $dbh_dis2  = init_handle($dis2_db);
-my $dbh_dis3  = init_handle($dis3_db);
-my $dbh_dis4  = init_handle($dis4_db);
-my $dbh_dis5  = init_handle($dis5_db);
-
+# initialize database handles
+my ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
+	 $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 );
+refresh_handles();
 say 'done';
 
 # initialize scheduling database from blank Excel file
@@ -214,6 +210,22 @@ sub init_sched {
 	import_dis() if $opts{e};
 }
 
+# get new database handles
+sub refresh_handles {
+	(  $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
+	   $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 )
+		= map { init_handle($_) } ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
+									$dis2_db,  $dis3_db, $dis4_db,  $dis5_db
+		);
+}
+
+# close database handles
+sub kill_handles {
+	map { $_->disconnect } (
+					$dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
+					$dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 );
+}
+
 # run in daemon mode until interrupted
 sub daemon {
 
@@ -221,8 +233,7 @@ sub daemon {
 
 	# length of time to sleep before updating report
 	# in seconds
-	# defaults to 1 minute
-	my $update_freq = 60;
+	my $update_freq = 300;
 
 	# fork child http server to host report
 	fork or server();
@@ -232,8 +243,10 @@ sub daemon {
 
 	# run indefinitely
 	# polling spreadsheet and AUH db to update report at specified frequency
+	my $initial_run = 1;
 	while (1) {
-
+		refresh_handles() unless $initial_run;
+		$initial_run = 0;
 		# lock against interrupt
 		$daemon_lock = 1;
 
@@ -258,6 +271,7 @@ sub daemon {
 			$daemon_lock = 0;
 		}
 		say "daemon run finished, sleeping for $update_freq seconds...";
+		kill_handles();
 		sleep($update_freq);
 	}
 }
@@ -679,8 +693,7 @@ sub backdate {
 		= @_;
 
 	for my $backdate_rowaref ( @{$backdate_updates} ) {
-		my ( $sched_id, $name, $update_id, $filedate )
-			= @{$backdate_rowaref};
+		my ( $sched_id, $name, $update_id, $filedate ) = @{$backdate_rowaref};
 		my ($bn) = $name =~ m/#(\d+)/;
 
 # only backdate earlier build numbers which have no history yet and are scheduled for earlier in the day
@@ -994,6 +1007,9 @@ sub datetime2offset {
 # poll ops schedule Excel spreadsheet for legacy feed statuses
 sub refresh_xls {
 
+	# attempt to download the latest spreadsheet from OpsDocs server
+	my $sched_xls = find_sched($remote_checklist);
+	
 	# create parser and parse xls
 	my $xlsparser = Spreadsheet::ParseExcel->new();
 	my $workbook  = $xlsparser->parse($sched_xls)
@@ -1306,8 +1322,8 @@ sub clear_schedule {
 
 # look for a schedule file in local dir
 sub find_sched {
-	say 'excel schedule file not specified, searching local directory...';
-	opendir( my $dir, '.' );
+	#say 'excel schedule file not specified, searching local directory...';
+	opendir( my $dir, shift );
 	my @files = readdir($dir);
 	closedir $dir;
 
@@ -1318,7 +1334,7 @@ sub find_sched {
 }
 
 sub usage {
-	pod2usage( -verbose > 1 );
+	pod2usage( {-verbose => 1} );
 	print '
 	usage: perl gen_db.pl
 		-c config file specified

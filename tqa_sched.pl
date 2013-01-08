@@ -193,13 +193,14 @@ sub init_sched {
 					}
 					else {
 						$row_data->{time_block} = $sched_block;
-					} 
+					}
 				}
 			}
 
-			# skip rows that have no values, degenerates (ha)
-			# also skip rows that have 'x' priority, not scheduled for that day
+		   # skip rows that have no values, degenerates (ha)
+		   # also skip rows that have 'x' priority, not scheduled for that day
 			next if !$row_data->{update} || $row_data->{priority} eq 'x';
+
 			# attempt to store rows that had values
 			store_row( $weekday_code, $row_data, 0 )
 				or warn "\tfailed to store row $row for $weekday\n";
@@ -589,6 +590,7 @@ sub refresh_auh {
 				with (NOLOCK)
 				where BuildNumber = $build_num
 				and DataFeedId = '$feed_id'
+				
 				order by ExecutionDateTime desc
 			";
 
@@ -605,6 +607,7 @@ sub refresh_auh {
 				with (NOLOCK)
 				where TaskReference LIKE '%$feed_id%'
 				and TransactionNumber = $trans_num
+				and DateDiff(dd, [BuildTime], GETUTCDATE()) < 1
 				order by ProcessTime desc
 			";
 			( $status, $exec_end, $fd, $fn, $sender, $trans_num, $build_time )
@@ -1344,6 +1347,9 @@ sub usage {
 		-h this message
 ';
 }
+
+# THE TRUTH
+1;
 
 =pod
 

@@ -17,14 +17,29 @@ my $sched_db  = $cfg->param( -block => 'sched_db' );
 my $dbh_sched = init_handle($sched_db);
 
 # all possible POST parameters
-my ( $headerdate, $headertime ) = calc_datetime();
+my ( $headerdate, $headertime, $dbdate ) = calc_datetime();
+
 
 # get POST params
 # parsed from CLI arg key/value pairs
-GetOptions( 'date=s' => \$headerdate );
+my $post_date;
+GetOptions( 'date=s' => \$post_date );
+
+
 
 print "HTTP/1.0 200 OK\r\n";
 print "Content-type: text/html\n\n";
+
+# if date passed through POST, update header variables
+if ($post_date) {
+	unless ($post_date =~ m/(\d{4})(\d{2})(\d{2})/) {
+		die "bad POST value: $post_date\n";	
+	}
+	$headerdate = "$2/$3/$1";
+	# no time when rewinding, obviously
+	$headertime = '';
+	$dbdate = $post_date;
+}
 
 print_header();
 
@@ -65,6 +80,8 @@ sub print_header {
 sub print_thead {
 	my @headers     = @_;
 	my $num_headers = scalar @headers;
+	my ($prevdate, $nextdate) = calc_adjacent();
+	
 	say "
 <form method='GET'>
 	<table cellspacing='0' width='100%' border=0>
@@ -73,6 +90,10 @@ sub print_thead {
 				<th colspan='$num_headers' >
 					<h2>Market Date $headerdate&nbsp&nbsp&nbsp|&nbsp&nbsp&nbsp$headertime </h2>
 				</th>
+			</tr>
+			<tr>
+				<th colspan='2'><a href='?date=$prevdate'><<</a> previous ($prevdate)</th>
+				<th colspan='3'>($nextdate) next <a href='?date=$nextdate'>>></a></th>
 			</tr>
 			<tr>";
 	for my $header (@headers) {
@@ -84,6 +105,34 @@ sub print_thead {
 	say "
 			<tr>
 		</thead>";
+}
+
+# returns the UPD YMD format for previous and next day navigation
+sub calc_adjacent {
+	# really, really don't want to pull Date::Manip into this script
+	my ($month, $day, $year) = $headerdate =~ m!(\d+)/(\d+)/(\d+)!;
+	my $time = timegm( 0, 0, 0, $day, $month - 1, $year - 1900 );
+	
+	my @y = gmtime($time - 86400);
+	my @t = gmtime($time + 86400);
+	
+	# skip weekends, there are no new UPDs on weekends
+	# if yesterday was sunday, skip back to last friday
+	#if ($y[6] == 0) {
+	#	@y = gmtime($time - 259200);
+	#}
+	
+	# if tomorrow is saturday, skip forward to next monday
+	#elsif ($t[6] == 6) {
+	#	@t = gmtime($time + 259200);
+	#}
+	
+	return (
+		# yesterday
+		sprintf("%u%02u%02u", $y[5] + 1900, $y[4] + 1, $y[3]),
+		# tomorrow
+		sprintf("%u%02u%02u", $t[5] + 1900, $t[4] + 1, $t[3])
+	);
 }
 
 sub print_table {
@@ -191,7 +240,8 @@ sub calc_datetime {
 	my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst )
 		= gmtime(time);
 	return ( sprintf( "%02u/%02u/%u", $mon + 1, $mday, $year + 1900 ),
-			 sprintf( "%02u:%02u:%02u", $hour, $min, $sec ) );
+			 sprintf( "%02u:%02u:%02u", $hour, $min, $sec ),
+			 sprintf( "%u%02u%02u", $year + 1900, $mon + 1, $mday  ) );
 }
 
 # returns code for passed date

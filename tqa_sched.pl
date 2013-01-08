@@ -193,13 +193,13 @@ sub init_sched {
 					}
 					else {
 						$row_data->{time_block} = $sched_block;
-					}
+					} 
 				}
 			}
 
 			# skip rows that have no values, degenerates (ha)
-			next unless $row_data->{update};
-
+			# also skip rows that have 'x' priority, not scheduled for that day
+			next if !$row_data->{update} || $row_data->{priority} eq 'x';
 			# attempt to store rows that had values
 			store_row( $weekday_code, $row_data, 0 )
 				or warn "\tfailed to store row $row for $weekday\n";
@@ -221,9 +221,8 @@ sub refresh_handles {
 
 # close database handles
 sub kill_handles {
-	map { $_->disconnect } (
-					$dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
-					$dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 );
+	map { $_->disconnect } ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
+							 $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 );
 }
 
 # run in daemon mode until interrupted
@@ -247,6 +246,7 @@ sub daemon {
 	while (1) {
 		refresh_handles() unless $initial_run;
 		$initial_run = 0;
+
 		# lock against interrupt
 		$daemon_lock = 1;
 
@@ -352,7 +352,7 @@ sub extract_row {
 		# priority - 'x' if not scheduled for the day
 		when (/^2$/) {
 			return unless $value;
-			$row_href->{priority} = $value =~ m/x/ ? 0 : $value;
+			$row_href->{priority} = $value;
 		}
 
 		# file date
@@ -1009,7 +1009,7 @@ sub refresh_xls {
 
 	# attempt to download the latest spreadsheet from OpsDocs server
 	my $sched_xls = find_sched($remote_checklist);
-	
+
 	# create parser and parse xls
 	my $xlsparser = Spreadsheet::ParseExcel->new();
 	my $workbook  = $xlsparser->parse($sched_xls)
@@ -1322,6 +1322,7 @@ sub clear_schedule {
 
 # look for a schedule file in local dir
 sub find_sched {
+
 	#say 'excel schedule file not specified, searching local directory...';
 	opendir( my $dir, shift );
 	my @files = readdir($dir);
@@ -1334,7 +1335,7 @@ sub find_sched {
 }
 
 sub usage {
-	pod2usage( {-verbose => 1} );
+	pod2usage( { -verbose => 1 } );
 	print '
 	usage: perl gen_db.pl
 		-c config file specified

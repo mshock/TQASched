@@ -11,13 +11,17 @@ use Config::Simple;
 use DBI;
 use Date::Manip qw(ParseDate DateCalc Delta_Format UnixDate);
 use Pod::Usage qw(pod2usage);
+use Exporter 'import';
 
-# opts d,i,e for initialization
+# opts d,i,e for initialization (drop, create, and populate db)
 # opt s for daemon mode (with webserver)
-# opt t to run only webserver
+# opt t to run only webserver (for testing)
+# no CLI args assumes
 
 # for inheritance later - only for daemon's webserver so far
 our @ISA;
+our @EXPORT_OK
+	= qw(code_weekday find_sched load_conf extract_row get_update_id init_handle);
 
 # globals
 my $catch_int = 0;
@@ -27,8 +31,11 @@ my ($daemon_lock);
 my $late_threshold = 1;
 my $tz_offset      = 6 * 60;
 
+# return if being imported as module rather than run directly
+return 1 if caller;
+
 my %opts;
-getopts( 'c:def:hist', \%opts );
+getopts( 'c:def:hirst', \%opts );
 
 ( usage() and exit ) if $opts{h};
 
@@ -319,7 +326,7 @@ sub handle_request {
 	# parse POST into CLI argument key/value pairs
 	my $params_string = '';
 	for ( $cgi->param ) {
-		$params_string .= sprintf( '--%s=%s ', $_, $cgi->param($_) );
+		$params_string .= sprintf( '--%s="%s" ', $_, $cgi->param($_) ) if defined $cgi->param($_);
 	}
 
 	# static serve web directory for css, charts (later, ajax)
@@ -1347,9 +1354,6 @@ sub usage {
 		-h this message
 ';
 }
-
-# THE TRUTH
-1;
 
 =pod
 

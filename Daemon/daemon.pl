@@ -3,10 +3,16 @@
 # TQASched daemon polls scheduling data and updates database
 
 use strict;
-use feature qw(say);
-use TQASched qw(load_conf refresh_handles kill_handles);
+use feature 'say';
+use lib '..';
+use TQASched;
 
 my $cfg = TQASched::load_conf();
+
+# load shared database handles for use in the daemon
+# INV: move all database work to the module, just call subs
+my ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
+	  $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 ) = @dbhs;
 
 # trap interrupts to prevent exiting mid-update
 $SIG{'INT'} = 'INT_handler';
@@ -19,9 +25,8 @@ while ($not_interrupted) {
 	# lock against manual interrupts
 	$daemon_lock = 1;
 
-	# reload configs, if necessary
-	# INV: how to preserve CLI args?
-	$cfg = load_conf();
+	# reload configs each run
+	$cfg = TQASched::load_conf();
 
 	TQASched::refresh_handles();
 

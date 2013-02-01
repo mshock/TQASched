@@ -17,35 +17,63 @@ use Exporter 'import';
 # opt t to run only webserver (for testing)
 # no CLI args assumes
 
-# for inheritance later - only for daemon's webserver so far
-our @ISA;
-
 # stuff to export to portal and daemon
-our @EXPORT_OK = qw(load_conf refresh_handles kill_handles);
+our @EXPORT
+	= qw(load_conf refresh_handles kill_handles write_log usage @dbhs);
 
-my $package = __PACKAGE__;
-
-say 'parsing config file...';
-
-our $cfg = load_conf();
+# shared db handle variables
+our @dbhs = our ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
+				  $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 );
 
 # return if being imported as module rather than run directly
-return 1 if caller;
+# INV: experimental... does this work in a require? I think so
+if (caller) {
+	say 'imported TQASched module for your personal enjoyment';
+	return 1;
+}
 
-#my %opts;
-#getopts( 'c:def:hirst', \%opts );
+################################################################################
+# Notice Posted:
+# anything beyond this point is the executable portion of this module
+# tread lightly -
+# do not flagrantly call flags or risk corrupting/losing scheduling data
+#################################################################################
+
+say 'TQASched module running in direct control mode, feel the POWER!';
+
+my $cfg;
+say 'parsing CLI and file configs (om nom nom)...';
+$cfg = load_conf();
 
 usage() if $cfg->help;
 
-say 'creating shared database handles...';
+say 'gonna initialize a fresh crop of database handles...';
 
-# private and shared variables associated with different db handles
+# private variables associated with different db handles
 my ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
 	 $dis2_db,  $dis3_db, $dis4_db,  $dis5_db );
-our ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
-	  $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 );
 
-say 'done';
+say '	*dial-up modem screech* (sorry)';
+
+# refresh those handles for the first time
+# just to make sure that any and all subs have live handles
+refresh_handles();
+
+say 'fnished, all warmed up and revving to go ^_^';
+
+# exit here if this is just a basic module load test - dryrun
+if ( $cfg->dryrun ) {
+	say 'dryrun complete - run along now';
+	exit;
+}
+
+# no CLI args provided (unusual), give a cute little warning
+elsif ( scalar @ARGV ) {
+	say
+		"well, you did NOT give me any explicit commands so I hope ${\$cfg->conf_file} tells me what to do";
+}
+
+say 'moving on to user request(s)...';
 
 # initialize scheduling database from blank Excel file
 init_sched() if $cfg->init_sched;
@@ -56,6 +84,9 @@ server() if $cfg->start_server;
 # run in daemon (server) mode
 daemon() if $cfg->start_daemon;
 
+say 'finished with all requests - prepare to be returned THE TRUTH';
+
+# THE TRUTH
 1;
 
 ####################################################################################
@@ -209,8 +240,11 @@ sub init_sched {
 	import_dis() if $cfg->import_dis;
 }
 
-# get new database handles
+# intialize new database handles
+# should be called often enough to keep them from going stale
+# especially for long-running scripts (daemon)
 sub refresh_handles {
+
 	(  $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
 	   $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 )
 		= map { init_handle($_) } ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
@@ -227,38 +261,7 @@ sub kill_handles {
 # server to be run in another process
 # hosts the report webmon
 sub server {
-
-	# load webserver module and ISA relationship at runtime in child
-	#require HTTP::Server::Simple::CGI;
-	use base qw(HTTP::Server::Simple::CGI);
-	use HTTP::Server::Simple::Static;
-
-	#push @ISA, 'HTTP::Server::Simple::CGI';
-	my $server = TQASched->new(8000);
-	$server->run();
-
-	# just in case server ever returns
-	die 'server has returned and is no longer running';
-}
-
-# override request handler for HTTP::Server::Simple
-sub handle_request {
-	my ( $self, $cgi ) = @_;
-
-	# parse POST into CLI argument key/value pairs
-	my $params_string = '';
-	for ( $cgi->param ) {
-		$params_string .= sprintf( '--%s="%s" ', $_, $cgi->param($_) )
-			if defined $cgi->param($_);
-	}
-
-	# static serve web directory for css, charts (later, ajax)
-	if ( $cgi->path_info =~ m/\.(css|xls|js|ico)/ ) {
-		$self->serve_static( $cgi, './web' );
-		return;
-	}
-
-	print `perl ${\$cfg->target_script} $params_string`;
+	exec;
 }
 
 # extract row into hash based on column number
@@ -786,105 +789,168 @@ sub get_update_id {
 	return $id;
 }
 
-# reloads configs
-# INV: should initial CLI args be preserved or overwritten by config file?
+# (re)loads configs
 sub load_conf {
-	my $conf_file = shift;
 
-	my $temp_conf = AppConfig->new(
-		{
-		   CREATE => 1,
-		   GLOBAL => { ARGCOUNT => ARGCOUNT_ONE,
-					   DEFAULT  => "<undef>",
-		   },
-		}
+	$cfg = AppConfig->new( { CREATE => 1,
+							 GLOBAL => { ARGCOUNT => ARGCOUNT_ONE,
+										 DEFAULT  => "<undef>",
+							 },
+						   }
 	);
 
-	# ->define() any default values here
+	# $cfg->define() any default values and set their options
 	define_defaults();
+
+	# backup CLI args
 	my @CLI = @ARGV;
 
-	# first pass at CLI args, mostly for config file setting
-	$temp_conf->args();
+	# first pass at CLI args, mostly checking for config file setting
+	$cfg->getopt();
 
 	# parse config file
-	$temp_conf->file( $temp_conf->config_file() );
+	$cfg->file( $cfg->config_file() );
 
 	# second pass at CLI args, they take precedence over config file
-	$temp_conf->args( \@CLI );
-
+	$cfg->getopt( \@CLI );
 	(  $sched_db, $auh_db,  $prod1_db, $dis1_db,
 	   $dis2_db,  $dis3_db, $dis4_db,  $dis5_db )
 		= map { get_handle_hash($_) } qw(sched_db auh_db prod1_db 1 2 3 4 5);
 
-	return ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
-			 $dis2_db,  $dis3_db, $dis4_db,  $dis5_db );
+	return $cfg;
 }
 
 sub define_defaults {
-	my %config_vars = (
+	my %config_vars = ();
+
+	%config_vars = (
+		%config_vars,
+		(
+
+			# server configs
+			# server host port ex: localhost:9191
+			server_port => { DEFAULT => 9191,
+							 ARGS    => '=s',
+							 ALIAS   => 'host_port|port|p',
+			},
+
+   # server auto-start, good to set in conf file once everything is running OK
+			server_start => { DEFAULT => 0,
+							  ARGS    => '!',
+							  ALIAS   => 'start_server|s',
+			},
+
+			# server logfile path
+			server_logfile => { DEFAULT => 'server.log',
+								ALIAS   => 'server_log',
+			},
+
+			# path to script which prints content
+			# this content is hosted through TCP/IP under HTTP
+			server_hosted_script => {
+						DEFAULT => 'test.pl',
+						ALIAS => 'hosted_script|target_script|content_script',
+			},
+
+   # daemon configs
+   # daemon auto-start, good to set in conf file once everythign is running OK
+			daemon_start => { DEFAULT => 0,
+							  ARGS    => '!',
+							  ALIAS   => 'start_daemon|d'
+			},
+
+			# periodicity of the daemon loop (seconds to sleep)
+			daemon_update_frequency => { DEFAULT => 60,
+										 ALIAS   => 'update_freq',
+			},
+
+			# daemon logfile path
+			daemon_logfile => { DEFAULT => 'daemon.log',
+								ALIAS   => 'daemon_log',
+			},
+
+			# scheduling configs
+			#
+			# path to master schedule spreadsheet
+			sched_file => { DEFAULT => find_sched('.'),
+							ALIAS   => 'sched',
+			},
+
+			# path to the operator legacy update checklist
+			sched_checklist_path => { DEFAULT => '.',
+									  ALIAS   => 'checklist',
+			},
+
+			# initialize scheduling data
+			# parse master schedule
+			# insert scheduling records and metadata into db
+			sched_init => { DEFAULT => 0,
+							ARGS    => '!',
+							ALIAS   => 'init_sched|i',
+			},
+
+	   # create scheduling the scheduling database framework from scratch, yum
+			sched_create_db => { DEFAULT => 0,
+								 ARGS    => '!',
+								 ALIAS   => 'create_db|c',
+			},
+
+# report (content gen script) configs
+#
+# path to css stylesheet file for report gen, hosted statically and only by request!
+# all statically hosted files are defined relative to the TQASched/Resources/ directory, where they enjoy living (for now, bwahahaha)
+			report_stylesheet => { DEFAULT => 'styles.css',
+								   ALIAS   => 'styles|stylesheet',
+			},
+
+	  # path to jquery codebase (an image of it taken sometime in... Jan 2013)
+			report_jquery => { DEFAULT => 'jquery.js',
+							   ALIAS   => 'jquery',
+			},
+
+			# path to
+			report_user_js => { DEFAULT => 'js.js',
+								ALIAS   => 'user_js',
+			},
+
+		 # default (misc) configs
+		 #
+		 # toggle or set verbosity level to turn off annoying, snarky messages
+			default_verbosity => { DEFAULT => 0,
+								   ARGS    => ':0',
+								   ALIAS   => 'verbosity|verbose|v',
+			},
+
+			# toggle logging
+			default_enable_logging => { DEFAULT => 1,
+										ARGS    => '!',
+										ALIAS => 'logging|logging_enabled|l',
+			},
+
+			# timezone to write log timestamps in
+			default_log_tz => { DEFAULT => 'local',
+								ALIAS   => 'tz|timezone',
+			},
+
+			# helpme / manpage from pod
+			default_help => { DEFAULT => 0,
+							  ALIAS   => 'help|h|version|usage'
+			},
 
 # path to config file
 # (optional, I suppose if you wanted to list all database connection info in CLI args)
-		config_file => { DEFAULT => "$package.conf",
-						 ALIAS   => "cfg_file|conf_file|c=s",
-		},
+			default_config_file => {
+								  DEFAULT => "TQASched.conf",
+								  ARGS    => '=s',
+								  ALIAS => "cfg_file|conf_file|config_file|f",
+			},
 
-		# server configs
-		server_port => { DEFAULT => 9191,
-						 ALIAS   => 'host_port|port|p=s',
-		},
-		server_start => { DEFAULT => 0,
-						  ALIAS   => 'start_server|s!',
-		},
-		server_logfile => { DEFAULT => 'server.log',
-							ALIAS   => 'server_log',
-		},
-		server_hosted_script => {
-						DEFAULT => 'test.pl',
-						ALIAS => 'hosted_script|target_script|content_script',
-		},
-
-		# daemon configs
-		daemon_start => { DEFAULT => 0,
-						  ALIAS   => 'start_daemon|d!'
-		},
-		daemon_update_frequency => { DEFAULT => 60,
-									 ALIAS   => 'update_freq',
-		},
-		daemon_logfile => { DEFAULT => 'daemon.log',
-							ALIAS   => 'daemon_log',
-		},
-
-		# scheduling configs
-		sched_file => { DEFAULT => find_sched('.'),
-						ALIAS   => 'sched',
-		},
-		sched_checklist_path { DEFAULT => '.',
-							   ALIAS   => 'checklist',
-		},
-		sched_init { DEFAULT => 0,
-					 ALIAS   => 'init_sched|i!'
-		},
-
-		# default (misc) configs
-		default_stylesheet => { DEFAULT => 'styles.css',
-								ALIAS   => 'styles|stylesheet',
-		},
-		default_verbosity => { DEFAULT => 0,
-							   ALIAS   => 'verbosity|verbose|v:0',
-		},
-		default_enable_logging => { DEFAULT => 1,
-									ALIAS   => 'logging|logging_enabled|l!',
-		},
-		default_log_tz => { DEFAULT => 'local',
-							ALIAS   => 'tz|timezone',
-		},
-
-		default_help => { DEFAULT => 0,
-						  ALIAS   => 'help|h|version|v|usage'
-		},
-
+# toggle dryrun mode = non-destructive test of module load and all db connections
+			default_dryrun => { DEFAULT => 0,
+								ARGS    => '!',
+								ALIAS   => 'dryrun|y',
+			}
+		)
 	);
 
 	$cfg->define( $_ => \%{ $config_vars{$_} } ) for keys %config_vars;
@@ -893,8 +959,8 @@ sub define_defaults {
 # build and return hash of db connection info from configs
 sub get_handle_hash {
 	my ($db_name) = (@_);
-	return { name   => $cfg->get("${db_name}_name"),
-			 user   => $cfg->get("${db_name}_user"),
+	return { name => ( $cfg->get("${db_name}_name") ? $cfg->get("${db_name}_name") : 'master'),
+			 user => $cfg->get("${db_name}_user"),
 			 server => $cfg->get("${db_name}_server"),
 			 pwd    => $cfg->get("${db_name}_pwd"),
 	};
@@ -1035,6 +1101,24 @@ sub find_sched {
 		say "\tfound: $_" and return $_ if /^DailyCheckList.*xls$/i;
 	}
 	usage() and die "could not find a schedule spreadsheet\n";
+}
+
+sub write_log {
+	my $entry_href = shift;
+
+	return unless $cfg->logging();
+
+	( warn "Passed non-href value to write_log\n" and return )
+		unless ( ref($entry_href) eq 'HASH' );
+
+	my %entry = %{$entry_href};
+
+	open my $log_fh, '>>', $entry{logfile}
+		or warn
+		"unable to open/create log $entry{logfile}: [$entry{type}]\t$entry{msg}\n"
+		and return;
+	printf $log_fh "[%s]\t[%s]\t%s\n", timestamp(), $entry{type}, $entry{msg};
+	close $log_fh;
 }
 
 sub usage {

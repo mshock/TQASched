@@ -36,7 +36,7 @@ if (caller) {
 # Notice Posted:
 # anything beyond this point is the executable portion of this module
 # tread lightly -
-# do not flagrantly call flags or risk corrupting/losing scheduling data
+# do not flagrantly call flags or risk corrupting/losing scheduling data, RTFM!
 #################################################################################
 
 say 'TQASched module running in direct control mode, feel the POWER!';
@@ -53,13 +53,13 @@ say 'gonna initialize a fresh crop of database handles...';
 my ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
 	 $dis2_db,  $dis3_db, $dis4_db,  $dis5_db );
 
-say '	*dial-up modem screech* (sorry)';
+say '	*dial-up modem screech* (apologies, running old tech)';
 
 # refresh those handles for the first time
 # just to make sure that any and all subs have live handles
 refresh_handles();
 
-say 'fnished, all warmed up and revving to go ^_^';
+say 'finished - TQASched all warmed up and revving to go go go ^_^';
 
 # exit here if this is just a basic module load test - dryrun
 if ( $cfg->dryrun ) {
@@ -75,13 +75,13 @@ elsif ( scalar @ARGV ) {
 
 say 'moving on to user request(s)...';
 
-# initialize scheduling database from blank Excel file
+# initialize scheduling database from master schedule Excel file
 init_sched() if $cfg->init_sched;
 
-# test web server mode
+# start web server and begin hosting web application
 server() if $cfg->start_server;
 
-# run in daemon (server) mode
+# start daemon keeping track of scheduling
 daemon() if $cfg->start_daemon;
 
 say 'finished with all requests - prepare to be returned THE TRUTH';
@@ -821,136 +821,131 @@ sub load_conf {
 }
 
 sub define_defaults {
-	my %config_vars = ();
+	my %config_vars = (
 
-	%config_vars = (
-		%config_vars,
-		(
-
-			# server configs
-			# server host port ex: localhost:9191
-			server_port => { DEFAULT => 9191,
-							 ARGS    => '=s',
-							 ALIAS   => 'host_port|port|p',
-			},
+		# server configs
+		# server host port ex: localhost:9191
+		server_port => { DEFAULT => 9191,
+						 ARGS    => '=s',
+						 ALIAS   => 'host_port|port|p',
+		},
 
    # server auto-start, good to set in conf file once everything is running OK
-			server_start => { DEFAULT => 0,
-							  ARGS    => '!',
-							  ALIAS   => 'start_server|s',
-			},
+		server_start => { DEFAULT => 0,
+						  ARGS    => '!',
+						  ALIAS   => 'start_server|s',
+		},
 
-			# server logfile path
-			server_logfile => { DEFAULT => 'server.log',
-								ALIAS   => 'server_log',
-			},
+		# server logfile path
+		server_logfile => { DEFAULT => 'server.log',
+							ALIAS   => 'server_log',
+		},
 
-			# path to script which prints content
-			# this content is hosted through TCP/IP under HTTP
-			server_hosted_script => {
+		# path to script which prints content
+		# this content is hosted through TCP/IP under HTTP
+		server_hosted_script => {
 						DEFAULT => 'test.pl',
 						ALIAS => 'hosted_script|target_script|content_script',
-			},
+		},
 
-   # daemon configs
-   # daemon auto-start, good to set in conf file once everythign is running OK
-			daemon_start => { DEFAULT => 0,
-							  ARGS    => '!',
-							  ALIAS   => 'start_daemon|d'
-			},
+# daemon configs
+# daemon auto-start, good to set in conf file once everythign is running OK
+		daemon_start => { DEFAULT => 0,
+						  ARGS    => '!',
+						  ALIAS   => 'start_daemon|d'
+		},
 
-			# periodicity of the daemon loop (seconds to sleep)
-			daemon_update_frequency => { DEFAULT => 60,
-										 ALIAS   => 'update_freq',
-			},
+		# periodicity of the daemon loop (seconds to sleep)
+		daemon_update_frequency => { DEFAULT => 60,
+									 ALIAS   => 'update_freq',
+		},
 
-			# daemon logfile path
-			daemon_logfile => { DEFAULT => 'daemon.log',
-								ALIAS   => 'daemon_log',
-			},
+		# daemon logfile path
+		daemon_logfile => { DEFAULT => 'daemon.log',
+							ALIAS   => 'daemon_log',
+		},
 
-			# scheduling configs
-			#
-			# path to master schedule spreadsheet
-			sched_file => { DEFAULT => find_sched('.'),
-							ALIAS   => 'sched',
-			},
+		# scheduling configs
+		#
+		# path to master schedule spreadsheet
+		sched_file => { DEFAULT => 'TQA_Update_Schedule.xls',
+						ALIAS   => 'sched',
+		},
 
-			# path to the operator legacy update checklist
-			sched_checklist_path => { DEFAULT => '.',
-									  ALIAS   => 'checklist',
-			},
+		# path to the operator legacy update checklist
+		sched_checklist_path => { DEFAULT => '.',
+								  ALIAS   => 'checklist',
+		},
 
-			# initialize scheduling data
-			# parse master schedule
-			# insert scheduling records and metadata into db
-			sched_init => { DEFAULT => 0,
-							ARGS    => '!',
-							ALIAS   => 'init_sched|i',
-			},
+		# initialize scheduling data
+		# parse master schedule
+		# insert scheduling records and metadata into db
+		sched_init => { DEFAULT => 0,
+						ARGS    => '!',
+						ALIAS   => 'init_sched|i',
+		},
 
 	   # create scheduling the scheduling database framework from scratch, yum
-			sched_create_db => { DEFAULT => 0,
-								 ARGS    => '!',
-								 ALIAS   => 'create_db|c',
-			},
+		sched_create_db => { DEFAULT => 0,
+							 ARGS    => '!',
+							 ALIAS   => 'create_db|c',
+		},
 
 # report (content gen script) configs
 #
 # path to css stylesheet file for report gen, hosted statically and only by request!
 # all statically hosted files are defined relative to the TQASched/Resources/ directory, where they enjoy living (for now, bwahahaha)
-			report_stylesheet => { DEFAULT => 'styles.css',
-								   ALIAS   => 'styles|stylesheet',
-			},
+		report_stylesheet => { DEFAULT => 'styles.css',
+							   ALIAS   => 'styles|stylesheet',
+		},
 
 	  # path to jquery codebase (an image of it taken sometime in... Jan 2013)
-			report_jquery => { DEFAULT => 'jquery.js',
-							   ALIAS   => 'jquery',
-			},
+		report_jquery => { DEFAULT => 'jquery.js',
+						   ALIAS   => 'jquery',
+		},
 
-			# path to
-			report_user_js => { DEFAULT => 'js.js',
-								ALIAS   => 'user_js',
-			},
+		# path to
+		report_user_js => { DEFAULT => 'js.js',
+							ALIAS   => 'user_js',
+		},
 
-		 # default (misc) configs
-		 #
-		 # toggle or set verbosity level to turn off annoying, snarky messages
-			default_verbosity => { DEFAULT => 0,
-								   ARGS    => ':0',
-								   ALIAS   => 'verbosity|verbose|v',
-			},
+		# default (misc) configs
+		#
+		# toggle or set verbosity level to turn off annoying, snarky messages
+		default_verbosity => { DEFAULT => 3,
+							   ARGS    => ':i',
+							   ALIAS   => 'verbosity|verbose|v',
+		},
 
-			# toggle logging
-			default_enable_logging => { DEFAULT => 1,
-										ARGS    => '!',
-										ALIAS => 'logging|logging_enabled|l',
-			},
+		# toggle logging
+		default_enable_logging => { DEFAULT => 1,
+									ARGS    => '!',
+									ALIAS   => 'logging|logging_enabled|l',
+		},
 
-			# timezone to write log timestamps in
-			default_log_tz => { DEFAULT => 'local',
-								ALIAS   => 'tz|timezone',
-			},
+		# timezone to write log timestamps in
+		default_log_tz => { DEFAULT => 'local',
+							ALIAS   => 'tz|timezone',
+		},
 
-			# helpme / manpage from pod
-			default_help => { DEFAULT => 0,
-							  ALIAS   => 'help|h|version|usage'
-			},
+		# helpme / manpage from pod
+		default_help => { DEFAULT => 0,
+						  ARGS    => '!',
+						  ALIAS   => 'help|version|usage|h'
+		},
 
 # path to config file
 # (optional, I suppose if you wanted to list all database connection info in CLI args)
-			default_config_file => {
-								  DEFAULT => "TQASched.conf",
-								  ARGS    => '=s',
-								  ALIAS => "cfg_file|conf_file|config_file|f",
-			},
+		default_config_file => { DEFAULT => "TQASched.conf",
+								 ARGS    => '=s',
+								 ALIAS => "cfg_file|conf_file|config_file|f",
+		},
 
 # toggle dryrun mode = non-destructive test of module load and all db connections
-			default_dryrun => { DEFAULT => 0,
-								ARGS    => '!',
-								ALIAS   => 'dryrun|y',
-			}
-		)
+		default_dryrun => { DEFAULT => 0,
+							ARGS    => '!',
+							ALIAS   => 'dryrun|y',
+		}
 	);
 
 	$cfg->define( $_ => \%{ $config_vars{$_} } ) for keys %config_vars;
@@ -959,8 +954,11 @@ sub define_defaults {
 # build and return hash of db connection info from configs
 sub get_handle_hash {
 	my ($db_name) = (@_);
-	return { name => ( $cfg->get("${db_name}_name") ? $cfg->get("${db_name}_name") : 'master'),
-			 user => $cfg->get("${db_name}_user"),
+	return { name => (   $cfg->get("${db_name}_name")
+					   ? $cfg->get("${db_name}_name")
+					   : 'master'
+			 ),
+			 user   => $cfg->get("${db_name}_user"),
 			 server => $cfg->get("${db_name}_server"),
 			 pwd    => $cfg->get("${db_name}_pwd"),
 	};
@@ -1089,13 +1087,11 @@ sub clear_schedule {
 		or die "error in clearing Schedule table\n", $dbh_sched->errstr;
 }
 
-# look for a schedule file in local dir
+# get latest schedule checklist
 sub find_sched {
-
-	#say 'excel schedule file not specified, searching local directory...';
-	opendir( my $dir, shift );
-	my @files = readdir($dir);
-	closedir $dir;
+	opendir( my $dir_fh, $cfg->checklist );
+	my @files = readdir($dir_fh);
+	closedir $dir_fh;
 
 	for (@files) {
 		say "\tfound: $_" and return $_ if /^DailyCheckList.*xls$/i;
@@ -1123,7 +1119,7 @@ sub write_log {
 
 sub usage {
 	my ($exit_val) = @_;
-	pod2usage( { -verbose => 1,
+	pod2usage( { -verbose => $cfg->verbosity,
 				 -exit    => $exit_val || 0
 			   }
 	);
@@ -1133,38 +1129,74 @@ sub usage {
 
 =head1 NAME
 
-TQASched - a tool for monitoring both legacy and DIS feed timeliness in AUH.
+TQASched - a module for monitoring both legacy and DIS feed timeliness using AUH metadata
 
 =head1 SYNOPSIS
 
-perl tqa_sched.pl [optional flags]
+perl TQASched.pm [optional flags]
 
 =head1 DESCRIPTION
 
-AUH content schedule monitoring tool
-Creates and populates a database with content scheduling data from content scheduling spreadsheet
-run daemon which reads AUH metadata and operator checklists to generate a feed timeliness report
+AUH content schedule monitoring module
+the module itself contains all utility functions for this application
+however, only really needs to be called directly to initialize app database and do testing
+
+capable of running all or in part the sub-scripts which support the application:
+
+=over 4
+
+=item F<Server/server.pl>
+
+HTTP server script which serves the report and any other files
+
+=item F<Daemon/daemon.pl>
+
+daemon which cyclicly compares AUH metadata against scheduling rules and updates TQASched db accordingly
+
+=item F<Server/report.pl>
+
+script which dynamically generates the web application interface HTML 
+
+=back
+
+=head3 USEFUL TASKS:
+
+=over 4 
+
+=item B<server>
+
+	start/debug http server (and by extension, the report)
+	
+=item B<daemon>
+
+	start/debug scheduling daemon
+	
+=item B<report>
+
+	generate report snapshot without running the server
+  
+=back
 
 =head1 OPTIONS
 
 =over 6
 
-=item B<-c>=I<configpath>
+=item B<-f --config-file>=I<configpath>
 
-Specify path for config file in the command line.
-Defaults to tqa_sched.pl and is generated automatically if not found.
+specify path for config file in the command line
+defaults to TQASched.conf in current dir
 
 =item B<-d>
 
-Create a new TQASched database if not already present.
+fork the scheduling monitoring script after startup
 
-=item B<-h>
+=item B<-h --help --version>
 
-Print usage
+print this manpage and exit
 
 =item B<-f>=I<schedulepath>
 
-Specify path to Excel scheduling/checklist document 
+specify path to Excel scheduling/checklist directory (network path, most likely) 
 
 =back
 
@@ -1172,25 +1204,48 @@ Specify path to Excel scheduling/checklist document
 
 =over 6
 
-=item F<tqa_sched.pl>
+=item F<TQASched.pm>
 
-This self-documented script.
-It is both a tool and a deamon - 
-the only executable component of the TQASched application.
-Refer to documentation for usage and configuration.
+this self-documented module, you're reading the manpage for it right now! 
+refer to the rest of the documentation for usage and configuration details
 
-=item F<tqa_sched.conf>
+=item F<TQASched.conf>
 
-A config file for the database credentials and other options. 
-Path can be specified with -c flag.
-Defaults to tqa_sched.pl and is generated automatically if not found.
+C<.ini> style config file primarily for the database credentials but is capable of setting any other configuration variables as well
 
-=item F<DailyChecklist.xls>
+=item F<Daemon/daemon.pl>
 
-Schedule checklist Excel spreadsheet.
-This is used for either initializing the TQASched database
-or for assigning the I<Filedate> and I<Filenum> of legacy content sets.
-The syntax of this document is strict, see example: F<ExampleChecklist.xls>
+daemon which cyclicly compares AUH metadata against scheduling rules and updates TQASched db accordingly
+daemon logs can be found in this subdirectory
+
+=item F<Server/server.pl>
+
+server script (also a daemon in its own right)
+hosts the output of the report file - the HTML webapp frontend
+also hosts various static files (css, js, generated xls files, etc.)
+server logs can be found in this subdirectory
+
+=item F<Server/report.pl>
+
+report script which dynamically generates HTML web application content based on the TQASched db
+report logs can be found in this subdirectory
+
+=item F<TQA_Update_Schedule.xls>
+
+master schedule checklist Excel spreadsheet
+this is used for either initializing the TQASched database
+or for adding new scheduling content
+parsing requires that the syntax of this document is strict so leave no trace 
+unless you know what you're doing - adding content row(s)
+removing content rows is not implemented yet and will have no effect on the db
+
+=item F<//E<lt>network.pathE<gt>/DailyChecklist_E<lt>daterangeE<gt>.xls>
+
+the operator checklist Excel spreadsheet for legacy content
+new sheets automatically generated in the network path by the daemon on weekly basis
+network path is generally set in configs
+date range in the filename is calculated
+strict formatting must be maintained in this file so that it may be parsed properly by the daemon
 
 =back
 

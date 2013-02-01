@@ -11,17 +11,18 @@ use Time::Local qw(timegm);
 use lib '..';
 use TQASched;
 
-my $refresh = 0;
 my $cfg     = load_conf('..');
+my $refresh = $cfg->refresh;
 
 # redirect that STDERR if it's not going to the term
-redirect_stderr( $cfg->report_log ) if caller;
+redirect_stderr( $cfg->report_log ) if 1;
 
 # we only need the handle for TQASched db in the report! that's all, folks!
 my ($dbh_sched) = refresh_handles();
 
 # all possible POST parameters
 my ( $headerdate, $headertime, $dbdate ) = calc_datetime();
+
 # get POST params
 # parsed from CLI arg key/value pairs
 my $post_date = $cfg->date;
@@ -30,10 +31,14 @@ print "HTTP/1.0 200 OK\r\n";
 print "Content-type: text/html\n\n";
 
 # if date passed through POST, update header variables
-if ($post_date) {
-	unless ( $post_date =~ m/(\d{4})(\d{2})(\d{2})/ ) {
-		die "bad POST value: $post_date\n";
-	}
+unless ( $post_date =~ m/(\d{4})(\d{2})(\d{2})/ ) {
+	write_log( { logfile => $cfg->report_log,
+				 type    => 'WARN',
+				 msg     => "bad POST value: $post_date\n"
+			   }
+	);
+}
+else {
 	$headerdate = "$2/$3/$1";
 
 	# no time when rewinding, obviously
@@ -57,8 +62,9 @@ print_table();
 
 print_footer();
 
-# write total execution time to log
-write_log( { logfile => $cfg->report_log, type => 'INFO', msg => "@CLI" } );
+# write execution time to log when done generating content (resolution: seconds, unfortunately)
+write_log(
+	 { logfile => $cfg->report_log, type => 'INFO', msg => exec_time() } );
 
 ######################################################
 #	Subs
@@ -66,10 +72,13 @@ write_log( { logfile => $cfg->report_log, type => 'INFO', msg => "@CLI" } );
 ######################################################
 
 sub print_header {
+
+	# enable report refresh for times over 15 seconds, no faster
+	# a value of less than 15 is treated as no refresh
 	my $header_refresh
-		= $refresh
-		? "<meta http-equiv='refresh' content='300' >"
-		: '<!-- auto refresh not enabled -->';
+		= $refresh >= 15
+		? "<meta http-equiv='refresh' content='$refresh' >"
+		: '<!-- auto refresh not enabled ($refresh) -->';
 
 	say "
 <html>
@@ -269,18 +278,4 @@ sub offset2time {
 	my $hours   = int( $offset / 60 );
 	my $minutes = $offset - $hours * 60;
 	return sprintf '%02u:%02u', $hours, $minutes;
-}
-
-sub init_handle {
-	my $db = shift;
-
-	# connecting to master since database may need to be created
-	return
-		DBI->connect(
-		sprintf(
-			"dbi:ODBC:Database=%s;Driver={SQL Server};Server=%s;UID=%s;PWD=%s",
-			$db->{name} || 'master', $db->{server},
-			$db->{user}, $db->{pwd}
-		)
-		) or die "failed to initialize database handle\n", $DBI::errstr;
 }

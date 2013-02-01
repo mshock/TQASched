@@ -7,7 +7,6 @@ use feature qw(say switch);
 use Spreadsheet::ParseExcel;
 use Spreadsheet::ParseExcel::Utility qw(ExcelFmt);
 use DBI;
-use IO::Handle;
 use Date::Manip qw(ParseDate DateCalc Delta_Format UnixDate);
 use Pod::Usage qw(pod2usage);
 use AppConfig qw(:argcount);
@@ -20,7 +19,8 @@ use Exporter 'import';
 
 # stuff to export to portal and daemon
 our @EXPORT
-	= qw(load_conf refresh_handles kill_handles write_log usage redirect_stderr @dbhs @CLI);
+	= qw(load_conf refresh_handles kill_handles write_log usage redirect_stderr exec_time @dbhs @CLI)
+	;
 
 # shared db handle variables
 our @dbhs = our ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
@@ -51,11 +51,14 @@ if ( my @subscript = caller ) {
 say
 	'TQASched module running in direct control mode, can you feel the POWER?!';
 
-# the ever-powerful and needlessly vigilant config variable - seriously
-my $cfg;
 
 say 'parsing CLI and file configs (om nom nom)...';
-$cfg = load_conf();
+# the ever-powerful and needlessly vigilant config variable - seriously
+my $cfg = load_conf();
+
+# no verbosity check! too bad i can't unsay what's been say'd
+# send all these annoying remarks to dev/null, or close as we can get
+disable_say() unless ($cfg->verbose);
 
 # user has requested some help. or wants to read the manpage. fine.
 usage() if $cfg->help;
@@ -81,7 +84,8 @@ if ( $cfg->dryrun ) {
 		say
 			'detected possible unconsumed commandline arguments and nolonger hungry';
 	}
-	say 'dryrun complete. run along now little technomancer';
+	say sprintf 'dryrun completed in %u seconds. run along now little technomancer',
+		exec_time();
 	exit;
 }
 
@@ -91,7 +95,8 @@ elsif ($num_args) {
 		"no explicit arguments? sure hope ${\$cfg->conf_file} tells me what to do, oh silent one";
 }
 
-printf "punching out user request%s, if any...\n",
+# let them know we're watching (if only barely)
+say sprintf "knocking out user request%s, if any...",
 	( $num_args > 1 ? 's' : '' );
 
 # initialize scheduling database from master schedule Excel file
@@ -102,16 +107,20 @@ server() if $cfg->start_server;
 
 # start daemon keeping track of scheduling
 daemon() if $cfg->start_daemon;
-
 say 'finished with all requests - prepare to be returned THE TRUTH';
 
-# THE TRUTH
+# THE TRUTH (oughta be 42, but that's 41 too many for perlwarn's liking)
 1;
 
 ####################################################################################
-#	subs
-#
+#	subs - currently in no particular order
+#		with only mild attempts at grouping similar code
 ####################################################################################
+
+# quick sub for getting current execution time
+sub exec_time {
+	return time - $^T;
+}
 
 # match DIS feeds from AUH to spreadsheet names in db
 sub import_dis {
@@ -854,14 +863,14 @@ sub load_conf {
 # handle any errors in AppConfig parsing - namely log them
 sub appconfig_error {
 
-# hacky way to determine what level in directory structure this was called from
-	use Cwd;
+	# hacky way to force always writing this log to top-level dir
+	# despite the calling script's location
+	my $top_log = $INC{'TQASched.pm'} =~ s!\w+\.pm!!gr . $cfg->log;
 
-	write_log(
-		{  logfile => $cfg->log,
-		   type    => 'WARN',
-		   msg     => sprintf(@_),
-		}
+	write_log( { logfile => $top_log,
+				 type    => 'WARN',
+				 msg     => join( "\t", @_ ),
+			   }
 	);
 }
 
@@ -871,7 +880,7 @@ sub define_defaults {
 		# server configs
 		# server host port ex: localhost:9191
 		server_port => { DEFAULT => 9191,
-						 ARGS    => '=s',
+						 ARGS    => '=i',
 						 ALIAS   => 'host_port|port|p',
 		},
 
@@ -960,6 +969,17 @@ sub define_defaults {
 							ALIAS   => 'user_js',
 		},
 
+		# refresh rate for report page
+		report_refresh => { DEFAULT => '300',
+							ALIAS   => 'refresh',
+		},
+
+		# report date CGI variable
+		report_date => { DEFAULT => '',
+						 ARGS    => '=i',
+						 ALIAS   => 'date',
+		},
+
 # refresh rate for the report page - can't be less than 10, and 0 means never.
 # (in seconds)
 
@@ -1008,13 +1028,10 @@ sub define_defaults {
 	$cfg->define( $_ => \%{ $config_vars{$_} } ) for keys %config_vars;
 }
 
-# build and return hash of db connection info from configs
+# build and return hashref of db connection info from configs
 sub get_handle_hash {
 	my ($db_name) = (@_);
-	return { name => (   $cfg->get("${db_name}_name")
-					   ? $cfg->get("${db_name}_name")
-					   : 'master'
-			 ),
+	return { name   => $cfg->get("${db_name}_name"),
 			 user   => $cfg->get("${db_name}_user"),
 			 server => $cfg->get("${db_name}_server"),
 			 pwd    => $cfg->get("${db_name}_pwd"),
@@ -1161,15 +1178,18 @@ sub find_sched {
 sub write_log {
 	my $entry_href = shift;
 
+	# bounce for logging toggle
 	return unless $cfg->logging;
 
+	# bounce for badly formed argument
 	( warn "Passed non-href value to write_log\n" and return )
 		unless ( ref($entry_href) eq 'HASH' );
 
-	my %entry;
+	# let's just make sure we're all lower case keys here and save a headache
+	my %entry = map { ( lc $_ => ${$entry_href}{$_} ) } keys %{$entry_href};
 
-	# let's just make sure we're all lower case here and save a headache
-	%entry = map { ( lc $_ => ${$entry_href}{$_} ) } keys %{$entry_href};
+	# verbosity bounce for INFO tags
+	return if !$cfg->verbose && uc $entry{type} eq 'INFO';
 
 	open my $log_fh, '>>', $entry{logfile}
 		or warn
@@ -1181,11 +1201,13 @@ sub write_log {
 
 # STDERR redirects to file if being run from the module
 sub redirect_stderr {
+	use IO::Handle;
 	my ($error_log) = (@_);
 	open my $err_fh, '>>', $error_log;
-	STDERR->fdopen( \$err_fh, 'a' )
-		or warn "failed to pipe errors to logfile\n";
-	return $err_fh;
+	STDERR->fdopen( $err_fh, 'a' )
+		or warn "failed to pipe errors to logfile:$!\n";
+
+	#return $err_fh;
 }
 
 sub usage {

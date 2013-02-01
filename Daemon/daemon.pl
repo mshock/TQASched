@@ -4,15 +4,20 @@
 
 use strict;
 use feature 'say';
+
 use lib '..';
 use TQASched;
 
-my $cfg = TQASched::load_conf();
+my $cfg = load_conf('..');
+
+# redirect that STDERR if it's not going to the term
+redirect_stderr( $cfg->daemon_log ) if caller;
 
 # load shared database handles for use in the daemon
 # INV: move all database work to the module, just call subs
 my ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
-	  $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 ) = @dbhs;
+	 $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5
+) = @dbhs;
 
 # trap interrupts to prevent exiting mid-update
 $SIG{'INT'} = 'INT_handler';
@@ -20,16 +25,22 @@ $SIG{'INT'} = 'INT_handler';
 my $not_interrupted = 1;
 my $daemon_lock     = 0;
 
+say
+	'hold onto your butts, the daemon is beginning its infinite duty cycle (or until otherwise notified, mangled, and/or killed)';
+
 while ($not_interrupted) {
-	
+
 	# lock against manual interrupts
 	$daemon_lock = 1;
+	say 'daemon lock acquired, launching missiles...';
 
 	# reload configs each run
-	$cfg = TQASched::load_conf();
+	$cfg = load_conf();
 
-	TQASched::refresh_handles();
+	# get new db handles each time
+	refresh_handles();
 
+# fork a couple processes to examine updates and consider scheduling implications
 	fork or refresh_dis();
 	fork or refresh_legacy();
 
@@ -227,7 +238,7 @@ sub refresh_auh {
 sub refresh_xls {
 
 	# attempt to download the latest spreadsheet from OpsDocs server
-	my $sched_xls = find_sched($remote_checklist);
+	my $sched_xls = find_sched( $cfg->checklist );
 
 	# create parser and parse xls
 	my $xlsparser = Spreadsheet::ParseExcel->new();

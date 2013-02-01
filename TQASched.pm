@@ -7,6 +7,7 @@ use feature qw(say switch);
 use Spreadsheet::ParseExcel;
 use Spreadsheet::ParseExcel::Utility qw(ExcelFmt);
 use DBI;
+use IO::Handle;
 use Date::Manip qw(ParseDate DateCalc Delta_Format UnixDate);
 use Pod::Usage qw(pod2usage);
 use AppConfig qw(:argcount);
@@ -19,16 +20,24 @@ use Exporter 'import';
 
 # stuff to export to portal and daemon
 our @EXPORT
-	= qw(load_conf refresh_handles kill_handles write_log usage @dbhs);
+	= qw(load_conf refresh_handles kill_handles write_log usage redirect_stderr @dbhs @CLI);
 
 # shared db handle variables
 our @dbhs = our ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
 				  $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 );
 
-# return if being imported as module rather than run directly
-# INV: experimental... does this work in a require? I think so
-if (caller) {
-	say 'imported TQASched module for your personal enjoyment';
+# for saving @ARGV values for later consumption
+our @CLI = @ARGV;
+
+# return if being imported as module rather than run directly - also snarky import messages are fun
+# INV: experimental... does this work in a use/require? I think so!
+if ( my @subscript = caller ) {
+
+	# shut up if this is loaded by the report, you'll screw with the protocol!
+	# otherwise - loud and proud
+	say
+		'imported TQASched module for your very own personal amusement! enjoy, pretty boy.'
+		unless $subscript[1] =~ m/report/;
 	return 1;
 }
 
@@ -39,15 +48,19 @@ if (caller) {
 # do not flagrantly call flags or risk corrupting/losing scheduling data, RTFM!
 #################################################################################
 
-say 'TQASched module running in direct control mode, feel the POWER!';
+say
+	'TQASched module running in direct control mode, can you feel the POWER?!';
 
+# the ever-powerful and needlessly vigilant config variable - seriously
 my $cfg;
+
 say 'parsing CLI and file configs (om nom nom)...';
 $cfg = load_conf();
 
+# user has requested some help. or wants to read the manpage. fine.
 usage() if $cfg->help;
 
-say 'gonna initialize a fresh crop of database handles...';
+say 'initializing and nurturing a fresh crop of database handles...';
 
 # private variables associated with different db handles
 my ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
@@ -59,21 +72,27 @@ say '	*dial-up modem screech* (apologies, running old tech)';
 # just to make sure that any and all subs have live handles
 refresh_handles();
 
-say 'finished - TQASched all warmed up and revving to go go go ^_^';
+say 'finished. TQASched all warmed up and revving to go go go ^_^';
 
 # exit here if this is just a basic module load test - dryrun
+my $num_args = scalar @CLI;
 if ( $cfg->dryrun ) {
-	say 'dryrun complete - run along now';
+	if ( $num_args > 1 ) {
+		say
+			'detected possible unconsumed commandline arguments and nolonger hungry';
+	}
+	say 'dryrun complete. run along now little technomancer';
 	exit;
 }
 
 # no CLI args provided (unusual), give a cute little warning
-elsif ( scalar @ARGV ) {
+elsif ($num_args) {
 	say
-		"well, you did NOT give me any explicit commands so I hope ${\$cfg->conf_file} tells me what to do";
+		"no explicit arguments? sure hope ${\$cfg->conf_file} tells me what to do, oh silent one";
 }
 
-say 'moving on to user request(s)...';
+printf "punching out user request%s, if any...\n",
+	( $num_args > 1 ? 's' : '' );
 
 # initialize scheduling database from master schedule Excel file
 init_sched() if $cfg->init_sched;
@@ -244,9 +263,8 @@ sub init_sched {
 # should be called often enough to keep them from going stale
 # especially for long-running scripts (daemon)
 sub refresh_handles {
-
-	(  $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
-	   $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 )
+	return ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
+			 $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 )
 		= map { init_handle($_) } ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
 									$dis2_db,  $dis3_db, $dis4_db,  $dis5_db
 		);
@@ -789,10 +807,25 @@ sub get_update_id {
 	return $id;
 }
 
-# (re)loads configs
+# current timestamp SQL DateTime format for GMT or machine time (local)
+sub timestamp {
+	my @now
+		= $cfg->tz() =~ m/(?:GM[T]?|UT[C]?)/i
+		? gmtime(time)
+		: localtime(time);
+	return
+		sprintf "%4d-%02d-%02d %02d:%02d:%02d",
+		$now[5] + 1900,
+		$now[4] + 1,
+		@now[ 3, 2, 1, 0 ];
+}
+
+# (re)loads configs from an optional relative path for sub-script callers
 sub load_conf {
+	my ($relative_path) = (@_);
 
 	$cfg = AppConfig->new( { CREATE => 1,
+							 ERROR  => \&appconfig_error,
 							 GLOBAL => { ARGCOUNT => ARGCOUNT_ONE,
 										 DEFAULT  => "<undef>",
 							 },
@@ -802,14 +835,12 @@ sub load_conf {
 	# $cfg->define() any default values and set their options
 	define_defaults();
 
-	# backup CLI args
-	my @CLI = @ARGV;
-
-	# first pass at CLI args, mostly checking for config file setting
+# first pass at CLI args, mostly checking for config file setting (note - consumes @ARGV)
 	$cfg->getopt();
 
-	# parse config file
-	$cfg->file( $cfg->config_file() );
+# parse config file for those vivacious variables and their rock steady, dependable values
+	$cfg->file( ( defined $relative_path ? "$relative_path/" : '' )
+				. $cfg->config_file() );
 
 	# second pass at CLI args, they take precedence over config file
 	$cfg->getopt( \@CLI );
@@ -818,6 +849,20 @@ sub load_conf {
 		= map { get_handle_hash($_) } qw(sched_db auh_db prod1_db 1 2 3 4 5);
 
 	return $cfg;
+}
+
+# handle any errors in AppConfig parsing - namely log them
+sub appconfig_error {
+
+# hacky way to determine what level in directory structure this was called from
+	use Cwd;
+
+	write_log(
+		{  logfile => $cfg->log,
+		   type    => 'WARN',
+		   msg     => sprintf(@_),
+		}
+	);
 }
 
 sub define_defaults {
@@ -848,8 +893,8 @@ sub define_defaults {
 						ALIAS => 'hosted_script|target_script|content_script',
 		},
 
-# daemon configs
-# daemon auto-start, good to set in conf file once everythign is running OK
+   # daemon configs
+   # daemon auto-start, good to set in conf file once everythign is running OK
 		daemon_start => { DEFAULT => 0,
 						  ARGS    => '!',
 						  ALIAS   => 'start_daemon|d'
@@ -891,23 +936,32 @@ sub define_defaults {
 							 ALIAS   => 'create_db|c',
 		},
 
-# report (content gen script) configs
-#
+		# report (content gen script) configs
+		# report script's logfile
+		report_logfile => {
+			DEFAULT => 'report.log',
+			ALIAS   => 'report_log',
+
+		},
+
 # path to css stylesheet file for report gen, hosted statically and only by request!
 # all statically hosted files are defined relative to the TQASched/Resources/ directory, where they enjoy living (for now, bwahahaha)
 		report_stylesheet => { DEFAULT => 'styles.css',
 							   ALIAS   => 'styles|stylesheet',
 		},
 
-	  # path to jquery codebase (an image of it taken sometime in... Jan 2013)
+# path to jquery codebase (an image of it taken sometime in... Jan 2013) - not in use yet
 		report_jquery => { DEFAULT => 'jquery.js',
 						   ALIAS   => 'jquery',
 		},
 
-		# path to
+	# path to user created javascript libraries and functions - not in use yet
 		report_user_js => { DEFAULT => 'js.js',
 							ALIAS   => 'user_js',
 		},
+
+# refresh rate for the report page - can't be less than 10, and 0 means never.
+# (in seconds)
 
 		# default (misc) configs
 		#
@@ -945,6 +999,9 @@ sub define_defaults {
 		default_dryrun => { DEFAULT => 0,
 							ARGS    => '!',
 							ALIAS   => 'dryrun|y',
+		},
+		default_logfile => { DEFAULT => 'TQASched.log',
+							 ALIAS   => 'log',
 		}
 	);
 
@@ -1093,21 +1150,26 @@ sub find_sched {
 	my @files = readdir($dir_fh);
 	closedir $dir_fh;
 
+	# TODO: find latest, create new (copy & rename blank checklist)
 	for (@files) {
 		say "\tfound: $_" and return $_ if /^DailyCheckList.*xls$/i;
 	}
-	usage() and die "could not find a schedule spreadsheet\n";
+	write_log( { logfile => $cfg->log, type => 'ERROR', msg => } );
 }
 
+# write a severity/type tagged message to target logfile
 sub write_log {
 	my $entry_href = shift;
 
-	return unless $cfg->logging();
+	return unless $cfg->logging;
 
 	( warn "Passed non-href value to write_log\n" and return )
 		unless ( ref($entry_href) eq 'HASH' );
 
-	my %entry = %{$entry_href};
+	my %entry;
+
+	# let's just make sure we're all lower case here and save a headache
+	%entry = map { ( lc $_ => ${$entry_href}{$_} ) } keys %{$entry_href};
 
 	open my $log_fh, '>>', $entry{logfile}
 		or warn
@@ -1115,6 +1177,15 @@ sub write_log {
 		and return;
 	printf $log_fh "[%s]\t[%s]\t%s\n", timestamp(), $entry{type}, $entry{msg};
 	close $log_fh;
+}
+
+# STDERR redirects to file if being run from the module
+sub redirect_stderr {
+	my ($error_log) = (@_);
+	open my $err_fh, '>>', $error_log;
+	STDERR->fdopen( \$err_fh, 'a' )
+		or warn "failed to pipe errors to logfile\n";
+	return $err_fh;
 }
 
 sub usage {

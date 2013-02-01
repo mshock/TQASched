@@ -7,38 +7,38 @@ use strict;
 use feature qw(say switch);
 use DBI;
 use Time::Local qw(timegm);
-use Getopt::Long qw(GetOptions);
-use Config::Simple;
+
+use lib '..';
+use TQASched;
 
 my $refresh = 0;
+my $cfg     = load_conf('..');
 
-my $cfg       = new Config::Simple('tqa_sched.conf');
-my $sched_db  = $cfg->param( -block => 'sched_db' );
-my $dbh_sched = init_handle($sched_db);
+# redirect that STDERR if it's not going to the term
+redirect_stderr( $cfg->report_log ) if caller;
+
+# we only need the handle for TQASched db in the report! that's all, folks!
+my ($dbh_sched) = refresh_handles();
 
 # all possible POST parameters
 my ( $headerdate, $headertime, $dbdate ) = calc_datetime();
-
-
 # get POST params
 # parsed from CLI arg key/value pairs
-my $post_date;
-GetOptions( 'date=s' => \$post_date );
-
-
+my $post_date = $cfg->date;
 
 print "HTTP/1.0 200 OK\r\n";
 print "Content-type: text/html\n\n";
 
 # if date passed through POST, update header variables
 if ($post_date) {
-	unless ($post_date =~ m/(\d{4})(\d{2})(\d{2})/) {
-		die "bad POST value: $post_date\n";	
+	unless ( $post_date =~ m/(\d{4})(\d{2})(\d{2})/ ) {
+		die "bad POST value: $post_date\n";
 	}
 	$headerdate = "$2/$3/$1";
+
 	# no time when rewinding, obviously
 	$headertime = '';
-	$dbdate = $post_date;
+	$dbdate     = $post_date;
 }
 
 print_header();
@@ -57,6 +57,9 @@ print_table();
 
 print_footer();
 
+# write total execution time to log
+write_log( { logfile => $cfg->report_log, type => 'INFO', msg => "@CLI" } );
+
 ######################################################
 #	Subs
 #
@@ -64,7 +67,9 @@ print_footer();
 
 sub print_header {
 	my $header_refresh
-		= $refresh ? "<meta http-equiv='refresh' content='300' >" : '<!-- auto refresh not enabled -->';
+		= $refresh
+		? "<meta http-equiv='refresh' content='300' >"
+		: '<!-- auto refresh not enabled -->';
 
 	say "
 <html>
@@ -80,8 +85,8 @@ sub print_header {
 sub print_thead {
 	my @headers     = @_;
 	my $num_headers = scalar @headers;
-	my ($prevdate, $nextdate) = calc_adjacent();
-	
+	my ( $prevdate, $nextdate ) = calc_adjacent();
+
 	say "
 <form method='GET'>
 	<table cellspacing='0' width='100%' border=0>
@@ -109,29 +114,32 @@ sub print_thead {
 
 # returns the UPD YMD format for previous and next day navigation
 sub calc_adjacent {
+
 	# really, really don't want to pull Date::Manip into this script
-	my ($month, $day, $year) = $headerdate =~ m!(\d+)/(\d+)/(\d+)!;
+	my ( $month, $day, $year ) = $headerdate =~ m!(\d+)/(\d+)/(\d+)!;
 	my $time = timegm( 0, 0, 0, $day, $month - 1, $year - 1900 );
-	
-	my @y = gmtime($time - 86400);
-	my @t = gmtime($time + 86400);
-	
+
+	my @y = gmtime( $time - 86400 );
+	my @t = gmtime( $time + 86400 );
+
 	# skip weekends, there are no new UPDs on weekends
 	# if yesterday was sunday, skip back to last friday
 	#if ($y[6] == 0) {
 	#	@y = gmtime($time - 259200);
 	#}
-	
+
 	# if tomorrow is saturday, skip forward to next monday
 	#elsif ($t[6] == 6) {
 	#	@t = gmtime($time + 259200);
 	#}
-	
+
 	return (
+
 		# yesterday
-		sprintf("%u%02u%02u", $y[5] + 1900, $y[4] + 1, $y[3]),
+		sprintf( "%u%02u%02u", $y[5] + 1900, $y[4] + 1, $y[3] ),
+
 		# tomorrow
-		sprintf("%u%02u%02u", $t[5] + 1900, $t[4] + 1, $t[3])
+		sprintf( "%u%02u%02u", $t[5] + 1900, $t[4] + 1, $t[3] )
 	);
 }
 
@@ -239,9 +247,10 @@ sub print_footer {
 sub calc_datetime {
 	my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst )
 		= gmtime(time);
-	return ( sprintf( "%02u/%02u/%u", $mon + 1, $mday, $year + 1900 ),
-			 sprintf( "%02u:%02u:%02u", $hour, $min, $sec ),
-			 sprintf( "%u%02u%02u", $year + 1900, $mon + 1, $mday  ) );
+	return ( sprintf( "%02u/%02u/%u",   $mon + 1, $mday, $year + 1900 ),
+			 sprintf( "%02u:%02u:%02u", $hour,    $min,  $sec ),
+			 sprintf( "%u%02u%02u", $year + 1900, $mon + 1, $mday )
+	);
 }
 
 # returns code for passed date

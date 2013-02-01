@@ -24,8 +24,8 @@ our @EXPORT
 # for saving @ARGV values for later consumption
 our @CLI = @ARGV;
 
-our @db_hrefs = my (  $sched_db, $auh_db,  $prod1_db, $dis1_db,
-	   $dis2_db,  $dis3_db, $dis4_db,  $dis5_db );
+our @db_hrefs = my ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
+					 $dis2_db,  $dis3_db, $dis4_db,  $dis5_db );
 
 # return if being imported as module rather than run directly - also snarky import messages are fun
 # INV: experimental... does this work in a use/require? I think so!
@@ -862,12 +862,17 @@ sub appconfig_error {
 
 	# hacky way to force always writing this log to top-level dir
 	# despite the calling script's location
-	my $top_log = $INC{'TQASched.pm'} =~ s!\w+\.pm!!gr . $cfg->log;
+	my $top_log
+		= ( __PACKAGE__ ne 'TQASched'
+			? $INC{'TQASched.pm'} =~ s!\w+\.pm!!gr
+			: '' )
+		. $cfg->log;
 
-	write_log( { logfile => $top_log,
-				 type    => 'WARN',
-				 msg     => join( "\t", @_ ),
-			   }
+	write_log(
+		{ logfile => $top_log,
+		  type    => 'WARN',
+		  msg     => join( "\t", @_ ),
+		}
 	);
 }
 
@@ -941,7 +946,13 @@ sub define_defaults {
 							 ARGS    => '!',
 							 ALIAS   => 'create_db|c',
 		},
-
+		# link update ids to feed ids in DIS 
+		sched_import_dis => {
+			DEFAULT => 0,
+			ARGS => '!',
+			ALIAS => 'import_dis|m'
+		},
+		
 		# report (content gen script) configs
 		# report script's logfile
 		report_logfile => {
@@ -983,7 +994,7 @@ sub define_defaults {
 		# default (misc) configs
 		#
 		# toggle or set verbosity level to turn off annoying, snarky messages
-		default_verbosity => { DEFAULT => 3,
+		default_verbosity => { DEFAULT => 1,
 							   ARGS    => ':i',
 							   ALIAS   => 'verbosity|verbose|v',
 		},
@@ -1092,8 +1103,7 @@ sub create_db {
 		"create table [TQASched].dbo.[Update_Schedule] (
 		sched_id int not null identity(1,1),
 		update_id int not null,
-		weekday char(1),
-		time int
+		sched_epoch DateTime not null
 	)"
 		)
 		or die "could not create Update_Schedule table\n", $dbh_sched->errstr;
@@ -1102,7 +1112,7 @@ sub create_db {
 		hist_id int not null identity(1,1),
 		update_id int not null,
 		sched_id int not null,
-		time int,
+		hist_epoch DateTime,
 		filedate int,
 		filenum tinyint,
 		timestamp DateTime,
@@ -1230,21 +1240,21 @@ script which dynamically generates the web application interface HTML
 
 =back
 
-=head3 USEFUL TASKS:
+=head3 COMPONENTS:
 
 =over 4 
 
 =item B<server>
 
-	start/debug http server (and by extension, the report)
+start/debug http server (and by extension, the report)
 	
 =item B<daemon>
 
-	start/debug scheduling daemon
+start/debug scheduling daemon
 	
 =item B<report>
 
-	generate report snapshot without running the server
+generate report snapshot without running the server
   
 =back
 
@@ -1252,22 +1262,38 @@ script which dynamically generates the web application interface HTML
 
 =over 6
 
+=item B<-c --create-db>
+
+create database from scratch
+
+=item B<-d --start_daemon>
+
+fork the scheduling monitoring daemon script after startup
+
 =item B<-f --config-file>=I<configpath>
 
 specify path for config file in the command line
 defaults to TQASched.conf in current dir
 
-=item B<-d>
-
-fork the scheduling monitoring script after startup
-
 =item B<-h --help --version>
 
 print this manpage and exit
 
-=item B<-f>=I<schedulepath>
+=item B<-i --init_sched> 
 
-specify path to Excel scheduling/checklist directory (network path, most likely) 
+initialize schedule from master spreadsheet
+
+=item B<-l --logging>
+
+logging toggle, on/off
+
+=item B<-p --port>=I<portnumber>
+
+specify port the server hosts the web application on
+
+=item B<-s --start_server>
+
+fork the http server script to begin hosting the report script
 
 =back
 

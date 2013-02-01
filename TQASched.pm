@@ -4,13 +4,12 @@ package TQASched;
 
 use strict;
 use feature qw(say switch);
-use Getopt::Std qw(getopts);
 use Spreadsheet::ParseExcel;
 use Spreadsheet::ParseExcel::Utility qw(ExcelFmt);
-use Config::Simple;
 use DBI;
 use Date::Manip qw(ParseDate DateCalc Delta_Format UnixDate);
 use Pod::Usage qw(pod2usage);
+use AppConfig qw(:argcount);
 use Exporter 'import';
 
 # opts d,i,e for initialization (drop, create, and populate db)
@@ -20,54 +19,44 @@ use Exporter 'import';
 
 # for inheritance later - only for daemon's webserver so far
 our @ISA;
-our @EXPORT_OK
-	= qw(code_weekday find_sched load_conf extract_row get_update_id init_handle);
 
-# globals
-my $catch_int = 0;
-my ($daemon_lock);
+# stuff to export to portal and daemon
+our @EXPORT_OK = qw(load_conf refresh_handles kill_handles);
 
-# number of minutes before a scheduled update is marked late
-my $late_threshold = 1;
-my $tz_offset      = 6 * 60;
+my $package = __PACKAGE__;
+
+say 'parsing config file...';
+
+our $cfg = load_conf();
 
 # return if being imported as module rather than run directly
 return 1 if caller;
 
-my %opts;
-getopts( 'c:def:hirst', \%opts );
+#my %opts;
+#getopts( 'c:def:hirst', \%opts );
 
-( usage() and exit ) if $opts{h};
+usage() if $cfg->help;
 
-my $conf_file = $opts{c} || 'tqa_sched.conf';
-my $remote_checklist = '\\\\10.16.40.216\\dataops\\Matt';
+say 'creating shared database handles...';
 
-say 'parsing config file...';
-
-# load config file
+# private and shared variables associated with different db handles
 my ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
-	 $dis2_db,  $dis3_db, $dis4_db,  $dis5_db
-) = load_conf($conf_file);
+	 $dis2_db,  $dis3_db, $dis4_db,  $dis5_db );
+our ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
+	  $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 );
 
-# get excel file containing schedule info
-my $sched_xls = $opts{f} || find_sched('.');
-
-say 'initializing database handles...';
-
-# initialize database handles
-my ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
-	 $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 );
-refresh_handles();
 say 'done';
 
 # initialize scheduling database from blank Excel file
-init_sched() if $opts{i};
+init_sched() if $cfg->init_sched;
 
 # test web server mode
-server() if $opts{t};
+server() if $cfg->start_server;
 
 # run in daemon (server) mode
-daemon() if $opts{s};
+daemon() if $cfg->start_daemon;
+
+1;
 
 ####################################################################################
 #	subs
@@ -152,6 +141,8 @@ sub import_dis {
 # fill database with initial scheduling data
 sub init_sched {
 
+	my $sched_xls = $cfg->sched;
+
 	# create parser and parse xls
 	my $xlsparser = Spreadsheet::ParseExcel->new();
 	my $workbook  = $xlsparser->parse($sched_xls)
@@ -160,7 +151,7 @@ sub init_sched {
 	say 'done';
 
 	# optionally create database and tables
-	( create_db() or die "failed to create database\n" ) if $opts{d};
+	( create_db() or die "failed to create database\n" ) if $cfg->create_db;
 
 	# populate database from excel file
 
@@ -215,7 +206,7 @@ sub init_sched {
 	}
 
 	# import the DIS mapping
-	import_dis() if $opts{e};
+	import_dis() if $cfg->import_dis;
 }
 
 # get new database handles
@@ -229,59 +220,8 @@ sub refresh_handles {
 
 # close database handles
 sub kill_handles {
-	map { $_->disconnect } ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
-							 $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 );
-}
-
-# run in daemon mode until interrupted
-sub daemon {
-
-	say 'starting daemon...';
-
-	# length of time to sleep before updating report
-	# in seconds
-	my $update_freq = 300;
-
-	# fork child http server to host report
-	fork or server();
-
-	# trap interrupts to prevent exiting mid-update
-	$SIG{'INT'} = 'INT_handler' if $catch_int;
-
-	# run indefinitely
-	# polling spreadsheet and AUH db to update report at specified frequency
-	my $initial_run = 1;
-	while (1) {
-		refresh_handles() unless $initial_run;
-		$initial_run = 0;
-
-		# lock against interrupt
-		$daemon_lock = 1;
-
-		# parse spreadsheet and insert new updates
-		say 'polling spreadsheet for legacy updates';
-		refresh_xls();
-
-		say 'polling dbs for DIS updates';
-
-		# examine AUH metadata and insert new updates
-		refresh_auh();
-
-		# check if interrupts were caught
-		if ( $daemon_lock > 1 ) {
-			say sprintf(
-					   'update completed, caught %u interrupts during update',
-					   $daemon_lock - 1 );
-			say 'interrupting TQASched services';
-			exit(0);
-		}
-		else {
-			$daemon_lock = 0;
-		}
-		say "daemon run finished, sleeping for $update_freq seconds...";
-		kill_handles();
-		sleep($update_freq);
-	}
+	my @handles = @_;
+	map { $_->disconnect } @handles;
 }
 
 # server to be run in another process
@@ -301,24 +241,6 @@ sub server {
 	die 'server has returned and is no longer running';
 }
 
-# interrupt (Ctrl+C) signal handler
-# postpones interrupts recieved during update until finished
-sub INT_handler {
-	if ($daemon_lock) {
-
-		# count the number of interrupts caught
-		# also tracks whether interrupt was caught
-		$daemon_lock++;
-		say 'SIGINT caught, exiting when daemon releases update lock...';
-	}
-	else {
-
-		# if not locked, business as usual
-		say 'interrupted';
-		exit(0);
-	}
-}
-
 # override request handler for HTTP::Server::Simple
 sub handle_request {
 	my ( $self, $cgi ) = @_;
@@ -326,7 +248,8 @@ sub handle_request {
 	# parse POST into CLI argument key/value pairs
 	my $params_string = '';
 	for ( $cgi->param ) {
-		$params_string .= sprintf( '--%s="%s" ', $_, $cgi->param($_) ) if defined $cgi->param($_);
+		$params_string .= sprintf( '--%s="%s" ', $_, $cgi->param($_) )
+			if defined $cgi->param($_);
 	}
 
 	# static serve web directory for css, charts (later, ajax)
@@ -335,7 +258,7 @@ sub handle_request {
 		return;
 	}
 
-	print `perl report.pl $params_string`;
+	print `perl ${\$cfg->target_script} $params_string`;
 }
 
 # extract row into hash based on column number
@@ -520,182 +443,6 @@ sub now_wd {
 	return $weekdays[$wday];
 }
 
-# poll auh metadata for DIS feed statuses
-sub refresh_auh {
-	my $current_wd     = now_wd();
-	my $current_offset = now_offset();
-
-	# get all updates expected for the current day
-	my $expected = "
-		select ud.feed_id, u.name, us.time, us.sched_id, us.update_id
-		from 
-			TQASched.dbo.Update_Schedule us,
-			TQASched.dbo.Update_DIS ud,
-			TQASched.dbo.Updates u
-		where ud.update_id = us.update_id
-		and us.weekday = '$current_wd'
-		and u.update_id = ud.update_id
-		";
-	my $sth_expected = $dbh_sched->prepare($expected);
-	$sth_expected->execute();
-	my $updates_aref = $sth_expected->fetchall_arrayref();
-
-	# iterate over each of them and determine if they are completed
-	for my $update_aref ( @{$updates_aref} ) {
-
-		# extract update info
-		my ( $feed_id, $name, $offset, $sched_id, $update_id )
-			= @{$update_aref};
-
-		# get build number (optional) from feed name
-		my ( $stripped_name, $build_num ) = $name =~ m/(.*)#(\d+)/;
-
-# double duty query
-# gets all needed info for non-enumerated feeds
-# gets DIS server (sender) for enumerated feeds to hit for build-specific details
-		my $transactions = "
-			select top 1 Status, ProcessTime, FileDate, FileNum, Sender, TransactionNumber, BuildTime 
-			from [TQALic].dbo.[PackageQueue] 
-			with (NOLOCK)
-			where TaskReference LIKE '%$feed_id%'
-			order by ProcessTime desc
-		";
-
-		my ( $status, $exec_end, $fd, $fn, $sender, $trans_num, $build_time )
-			= $dbh_prod1->selectrow_array($transactions);
-
-		# if this is an enumerated feed
-		# check the last execution time of that build
-		# in the correct DIS server
-		my $backdate_updates;
-		if ($build_num) {
-
-			# backdate builds packaged in the same UPD
-			my $backdate_query = "
-				select us.sched_id, u.name, u.update_id, uh.filedate
-				from tqasched.dbo.update_schedule us
-				join tqasched.dbo.updates u
-					on u.update_id = us.update_id
-				left join tqasched.dbo.update_history uh
-					on uh.sched_id = us.sched_id
-					and DateDiff(dd, [timestamp], GETUTCDATE()) < 1
-				where us.weekday = '$current_wd'
-				and u.name LIKE '$stripped_name%'
-			";
-
-			#say $backdate_query;
-
-			$backdate_updates
-				= $dbh_sched->selectall_arrayref($backdate_query);
-
-			my $dbh_dis = sender2dbh($sender);
-
-			# retrieve last transaction number for this build number
-			my $dis_trans = "
-				select top 1 DISTransactionNumber
-				from DataIngestionInfrastructure.dbo.MakeUpdateInfo
-				with (NOLOCK)
-				where BuildNumber = $build_num
-				and DataFeedId = '$feed_id'
-				
-				order by ExecutionDateTime desc
-			";
-
-			my ($trans_num) = $dbh_dis->selectrow_array($dis_trans)
-				or warn
-				"\tno transaction # found for enum feed $name, skipping\n"
-				and next;
-
-			# select this transaction from TQALic
-			# to get AUH process time, along with filenum and filedate
-			my $transactions = "
-				select top 1 Status, BuildTime, FileDate, FileNum, Sender, TransactionNumber, BuildTime 
-				from [TQALic].dbo.[PackageQueue] 
-				with (NOLOCK)
-				where TaskReference LIKE '%$feed_id%'
-				and TransactionNumber = $trans_num
-				and DateDiff(dd, [BuildTime], GETUTCDATE()) < 1
-				order by ProcessTime desc
-			";
-			( $status, $exec_end, $fd, $fn, $sender, $trans_num, $build_time )
-				= $dbh_prod1->selectrow_array($transactions)
-				or warn
-				"\tcould not find metadata for $name from trans #: $trans_num\n"
-				and next;
-
-		}
-
-		if ( defined $fd ) {
-			$fd =~ s/(\d+)-(\d+)-(\d+).*/$1$2$3/;
-		}
-
-		# check last feed execution endtime value to verify schedule data
-		# convert DateTime to offset and compare against current time
-		if ($exec_end) {
-
-			##say "found transaction for $name";
-			#my $trans_offset = datetime2offset($exec_end);
-
-			# no transaction offset means that the last one was a previous day
-			#if ( !$trans_offset ) {
-			#	say "\tmust be previous day $name";
-			#	next;
-			#}
-
-			# compare transaction execution time to schedule offset
-			my $cmp_result = comp_offsets( $exec_end, $offset );
-			my $trans_offset = datetime2offset($exec_end);
-
-			# if it's within an hour of the scheduled time, mark as on time
-			# could also be early
-			if ( $cmp_result == 0 ) {
-				say "ontime $name $exec_end offset: $offset";
-				update_history( { update_id    => $update_id,
-								  sched_id     => $sched_id,
-								  trans_offset => $trans_offset,
-								  late         => 'N',
-								  filedate     => $fd,
-								  filenum      => $fn
-								}
-				);
-				backdate( $backdate_updates, $trans_offset, 'N', $fd, $fn,
-						  $build_num, $sched_id );
-			}
-
-			# otherwise it either has not come in or it is late
-			# late
-			elsif ( $cmp_result == 1 ) {
-				say "late $name $exec_end to offset: $offset";
-				update_history( { update_id    => $update_id,
-								  sched_id     => $sched_id,
-								  trans_offset => $trans_offset,
-								  late         => 'Y',
-								  filedate     => $fd,
-								  filenum      => $fn
-								}
-				);
-				backdate( $backdate_updates, $trans_offset, 'Y', $fd, $fn,
-						  $build_num, $sched_id );
-			}
-
-			# possibly just not recvd yet
-			elsif ( $cmp_result == -1 ) {
-				say "waiting on $name, last trans: $exec_end";
-			}
-			else {
-				warn
-					"\tFAILED transaction offset sanity check: $name $$offset\n";
-				next;
-			}
-		}
-		else {
-			warn "\tno transactions found for $name : feed_id = $feed_id\n";
-			next;
-		}
-
-	}
-}
-
 # update all older builds issued in the same update
 sub backdate {
 	my ( $backdate_updates, $trans_offset, $late, $fd, $fn, $build_num,
@@ -807,6 +554,8 @@ sub comp_offsets {
 
 	$hrs_diff = -$hrs_diff if $trans_offset_ts =~ m/1900-01-01/;
 	say $hrs_diff;
+
+	my $late_threshold = $cfg->late_threshold;
 
 	# arrived a period after the late threshold, late
 	if ( $hrs_diff >= $late_threshold ) {
@@ -1014,131 +763,6 @@ sub datetime2offset {
 
 }
 
-# poll ops schedule Excel spreadsheet for legacy feed statuses
-sub refresh_xls {
-
-	# attempt to download the latest spreadsheet from OpsDocs server
-	my $sched_xls = find_sched($remote_checklist);
-
-	# create parser and parse xls
-	my $xlsparser = Spreadsheet::ParseExcel->new();
-	my $workbook  = $xlsparser->parse($sched_xls)
-		or die "unable to parse spreadsheet: $sched_xls\n",
-		$xlsparser->error();
-	say 'done';
-
-	# iterate over each weekday (worksheets)
-	for my $worksheet ( $workbook->worksheets() ) {
-		my $weekday = $worksheet->get_name();
-		say "parsing $weekday...";
-		my $weekday_code = code_weekday($weekday);
-
-		# skip if this is an unrecognized worksheet
-		say "\tunable to parse weekday, skipping" and next
-			if $weekday_code eq 'U';
-
-		# find the row and column bounds for iteration
-		my ( $col_min, $col_max ) = $worksheet->col_range();
-		my ( $row_min, $row_max ) = $worksheet->row_range();
-
-		my $sched_block = '';
-
-		# iterate over each row and store scheduling data
-		for ( my $row = $row_min; $row <= $row_max; $row++ ) {
-			next if $row <= 1;
-
-			# per-update hash of column values
-			my $row_data = {};
-			for ( my $col = $col_min; $col <= $col_max; $col++ ) {
-				my $cell = $worksheet->get_cell( $row, $col );
-				unless ( extract_row( $col, $cell, $row_data ) ) {
-
-					#last;
-				}
-				else {
-					if (    $row_data->{time_block}
-						 && $sched_block ne $row_data->{time_block} )
-					{
-						$sched_block = $row_data->{time_block};
-					}
-					else {
-						$row_data->{time_block} = $sched_block;
-					}
-				}
-			}
-
-			# skip unless filled in
-			next
-				unless $row_data->{update}
-					&& $row_data->{filedate}
-					&& $row_data->{filenum};
-
-			my $name        = $row_data->{update};
-			my $update_id   = get_update_id($name);
-			my $sched_query = "
-				select time, sched_id 
-				from TQASched.dbo.Update_Schedule us
-				where update_id = $update_id
-				and weekday = '$weekday_code'
-			";
-
-			#say $sched_query and die;
-			my ( $sched_offset, $sched_id )
-				= $dbh_sched->selectrow_array($sched_query);
-
-			unless ($sched_offset) {
-				warn "no schedule entry for $name : $update_id : $sched_id\n";
-				next;
-			}
-
-			my $exec_end     = gmtime(time);
-			my $trans_offset = now_offset();
-			my $ontime;
-
-			# compare transaction execution time to schedule offset
-			my $cmp_result = comp_offsets( $exec_end, $sched_offset );
-
-			# if it's within an hour of the scheduled time, mark as on time
-			# could also be early
-			if ( $cmp_result == 0 ) {
-				say "ontime $name $exec_end offset: $sched_offset";
-				update_history( { update_id    => $update_id,
-								  sched_id     => $sched_id,
-								  trans_offset => $trans_offset,
-								  late         => 'N',
-								  filedate     => $row_data->{filedate},
-								  filenum      => $row_data->{filenum}
-								}
-				);
-			}
-
-			# otherwise it either has not come in or it is late
-			# late
-			elsif ( $cmp_result == 1 ) {
-				say "late $name $exec_end to offset: $sched_offset";
-				update_history( { update_id    => $update_id,
-								  sched_id     => $sched_id,
-								  trans_offset => $trans_offset,
-								  late         => 'Y',
-								  filedate     => $row_data->{filedate},
-								  filenum      => $row_data->{filenum}
-								}
-				);
-			}
-
-			# possibly just not recvd yet
-			elsif ( $cmp_result == -1 ) {
-				say "waiting on $name, last trans: $exec_end";
-			}
-			else {
-				warn
-					"\tFAILED transaction offset sanity check: $name $sched_offset\n";
-				next;
-			}
-		}
-	}
-}
-
 # convert time of day (24hr) into minute offset from 12:00am
 # TODO: compensate for GMT vs CST times
 sub time2offset {
@@ -1162,49 +786,118 @@ sub get_update_id {
 	return $id;
 }
 
-# load db info and optional params from config file
+# reloads configs
+# INV: should initial CLI args be preserved or overwritten by config file?
 sub load_conf {
 	my $conf_file = shift;
 
-	# if file doesn't exist, create
-	unless ( -f $conf_file ) {
-		die "could not load config file: $conf_file, ",
-			( init_conf()
-			  ? 'a skeleton config has been created'
-			  : 'failed to create skeleton config'
-			),
-			"\n";
-	}
+	my $temp_conf = AppConfig->new(
+		{
+		   CREATE => 1,
+		   GLOBAL => { ARGCOUNT => ARGCOUNT_ONE,
+					   DEFAULT  => "<undef>",
+		   },
+		}
+	);
 
-	my $cfg = new Config::Simple($conf_file);
+	# ->define() any default values here
+	define_defaults();
+	my @CLI = @ARGV;
 
-	my $sched_db = $cfg->param( -block => 'sched_db' )
-		or die
-		"could not load sched database info from config file, check config file\n";
-	my $auh_db = $cfg->param( -block => 'auh_db' )
-		or die
-		"could not load auh database info from config file, check config file\n";
-	my $prod1_db = $cfg->param( -block => 'prod1_db' )
-		or die
-		"could not load prod1 database info from config file, check config file\n";
-	my $dis1_db = $cfg->param( -block => '1' )
-		or die
-		"could not load dis1 database info from config file, check config file\n";
-	my $dis2_db = $cfg->param( -block => '2' )
-		or die
-		"could not load dis2 database info from config file, check config file\n";
-	my $dis3_db = $cfg->param( -block => '3' )
-		or die
-		"could not load dis3 database info from config file, check config file\n";
-	my $dis4_db = $cfg->param( -block => '4' )
-		or die
-		"could not load dis4 database info from config file, check config file\n";
-	my $dis5_db = $cfg->param( -block => '5' )
-		or die
-		"could not load dis5 database info from config file, check config file\n";
+	# first pass at CLI args, mostly for config file setting
+	$temp_conf->args();
+
+	# parse config file
+	$temp_conf->file( $temp_conf->config_file() );
+
+	# second pass at CLI args, they take precedence over config file
+	$temp_conf->args( \@CLI );
+
+	(  $sched_db, $auh_db,  $prod1_db, $dis1_db,
+	   $dis2_db,  $dis3_db, $dis4_db,  $dis5_db )
+		= map { get_handle_hash($_) } qw(sched_db auh_db prod1_db 1 2 3 4 5);
 
 	return ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
 			 $dis2_db,  $dis3_db, $dis4_db,  $dis5_db );
+}
+
+sub define_defaults {
+	my %config_vars = (
+
+# path to config file
+# (optional, I suppose if you wanted to list all database connection info in CLI args)
+		config_file => { DEFAULT => "$package.conf",
+						 ALIAS   => "cfg_file|conf_file|c=s",
+		},
+
+		# server configs
+		server_port => { DEFAULT => 9191,
+						 ALIAS   => 'host_port|port|p=s',
+		},
+		server_start => { DEFAULT => 0,
+						  ALIAS   => 'start_server|s!',
+		},
+		server_logfile => { DEFAULT => 'server.log',
+							ALIAS   => 'server_log',
+		},
+		server_hosted_script => {
+						DEFAULT => 'test.pl',
+						ALIAS => 'hosted_script|target_script|content_script',
+		},
+
+		# daemon configs
+		daemon_start => { DEFAULT => 0,
+						  ALIAS   => 'start_daemon|d!'
+		},
+		daemon_update_frequency => { DEFAULT => 60,
+									 ALIAS   => 'update_freq',
+		},
+		daemon_logfile => { DEFAULT => 'daemon.log',
+							ALIAS   => 'daemon_log',
+		},
+
+		# scheduling configs
+		sched_file => { DEFAULT => find_sched('.'),
+						ALIAS   => 'sched',
+		},
+		sched_checklist_path { DEFAULT => '.',
+							   ALIAS   => 'checklist',
+		},
+		sched_init { DEFAULT => 0,
+					 ALIAS   => 'init_sched|i!'
+		},
+
+		# default (misc) configs
+		default_stylesheet => { DEFAULT => 'styles.css',
+								ALIAS   => 'styles|stylesheet',
+		},
+		default_verbosity => { DEFAULT => 0,
+							   ALIAS   => 'verbosity|verbose|v:0',
+		},
+		default_enable_logging => { DEFAULT => 1,
+									ALIAS   => 'logging|logging_enabled|l!',
+		},
+		default_log_tz => { DEFAULT => 'local',
+							ALIAS   => 'tz|timezone',
+		},
+
+		default_help => { DEFAULT => 0,
+						  ALIAS   => 'help|h|version|v|usage'
+		},
+
+	);
+
+	$cfg->define( $_ => \%{ $config_vars{$_} } ) for keys %config_vars;
+}
+
+# build and return hash of db connection info from configs
+sub get_handle_hash {
+	my ($db_name) = (@_);
+	return { name   => $cfg->get("${db_name}_name"),
+			 user   => $cfg->get("${db_name}_user"),
+			 server => $cfg->get("${db_name}_server"),
+			 pwd    => $cfg->get("${db_name}_pwd"),
+	};
 }
 
 # translate weekday string to code
@@ -1345,14 +1038,11 @@ sub find_sched {
 }
 
 sub usage {
-	pod2usage( { -verbose => 1 } );
-	print '
-	usage: perl gen_db.pl
-		-c config file specified
-		-d create empty database framework
-		-f schedule xls file	
-		-h this message
-';
+	my ($exit_val) = @_;
+	pod2usage( { -verbose => 1,
+				 -exit    => $exit_val || 0
+			   }
+	);
 }
 
 =pod

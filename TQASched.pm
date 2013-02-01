@@ -13,9 +13,12 @@ use Pod::Usage qw(pod2usage);
 use AppConfig qw(:argcount);
 use Exporter 'import';
 
+# -i -c to initialize
+
 # stuff to export to portal and daemon
 our @EXPORT
 	= qw(load_conf refresh_handles kill_handles write_log usage redirect_stderr exec_time find_sched refresh_legacy refresh_dis @db_hrefs @CLI);
+
 #our @EXPORT_OK = qw(refresh_legacy refresh_dis);
 
 # for saving @ARGV values for later consumption
@@ -163,7 +166,7 @@ sub init_sched {
 			my $row_data = {};
 			for ( my $col = $col_min; $col <= $col_max; $col++ ) {
 				my $cell = $worksheet->get_cell( $row, $col );
-				extract_row( $col, $cell, $row_data );
+				extract_row_init( $col, $cell, $row_data );
 			}
 
 		   # skip rows that have no values, degenerates (ha)
@@ -206,7 +209,7 @@ sub server {
 
 # extract row into hash based on column number
 # for master spreadsheet ingestion
-sub extract_row {
+sub extract_row_init {
 	my ( $col, $cell, $row_href ) = @_;
 
 	# get formatted excel value for most columns
@@ -316,6 +319,72 @@ sub extract_row {
 	return 1;
 }
 
+# extract row into hash based on column number
+# for loading checklist entries
+sub extract_row_daemon {
+	my ( $col, $cell, $row_href ) = @_;
+
+	# get formatted excel value for most columns
+	my $value = $cell ? $cell->value() : '';
+	given ($col) {
+
+		# time scheduled/expected
+		when (/^0$/) {
+
+			$row_href->{time_block} = $value if $value;
+		}
+
+		# update name (needs to be exactly the same every time)
+		when (/^1$/) {
+			$row_href->{update} = $value ? $value : return;
+		}
+
+		# priority - 'x' if not scheduled for the day
+		when (/^2$/) {
+			return unless $value;
+			$row_href->{priority} = $value;
+		}
+
+		# file date
+		when (/^3$/) {
+			return unless $value;
+
+			# extract unformatted datetime and convert to filedate integer
+			my $time_excel = $cell->unformatted();
+			my $value = ExcelFmt( 'yyyymmdd', $time_excel );
+
+			# skip if not scheduled for this day
+			$row_href->{filedate} = $value ? $value : return;
+		}
+
+		# file number
+		when (/^4$/) {
+			if ( $value ne '0' ) {
+				$row_href->{is_legacy} = 1;
+				$row_href->{filenum} = $value ? $value : return;
+			}
+			else {
+				$row_href->{is_legacy} = 0;
+			}
+		}
+
+		# ID
+		when (/^5$/) {
+			$row_href->{id} = $value;
+		}
+
+		# comment
+		when (/^6$/) {
+			$row_href->{comment} = $value;
+		}
+
+		# outside of parsing scope
+		# return and go to next row
+		default {return};
+	}
+	return 1;
+}
+
 # analyze and store a row from scheduling spreadsheet in database
 sub store_row {
 	my $row_href = shift;
@@ -375,10 +444,11 @@ sub store_row {
 
 	# insert scheduling info for each weekday
 	my @time_offsets = offset_weekdays( $sched_epoch, $days );
-	for my $this_offset (@time_offsets) {
+	for my $pair_aref (@time_offsets) {
+		my ( $this_offset, $weekday_code ) = @$pair_aref;
 		$dbh_sched->do( "
 			insert into [TQASched].dbo.[Update_Schedule] values 
-				('$update_id','$this_offset')
+				('$update_id','$weekday_code','$this_offset')
 		" )
 			or warn
 			"\tfailed to insert update schedule info for update: $update id = $update_id & offset = $this_offset\n",
@@ -400,11 +470,11 @@ sub store_row {
 
 # generate time offset for the current time GMT
 sub now_offset {
-
 	# calculate GM Time
 	my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst )
 		= gmtime(time);
-	return time2offset("$hour:$min");
+	my $offset = time2offset("$hour:$min");
+	return 86400 * $wday + $offset + $sec;
 }
 
 # retrieve schedule IDs (aref of aref) from database for an update ID
@@ -1041,14 +1111,18 @@ sub offset_weekdays {
 
 		 # iterate over each day and push to return array - easy case, no wrap
 			while ( $first_int <= $second_int ) {
-				push @offsets, $first_int * $day_increment + $sched_offset;
+				push @offsets,
+					[ $first_int * $day_increment + $sched_offset, $first_int
+					];
 				$first_int++;
 			}
 
 		}
 		elsif ( $first_int > $second_int ) {
 			while (1) {
-				push @offsets, $first_int * $day_increment + $sched_offset;
+				push @offsets,
+					[ $first_int * $day_increment + $sched_offset, $first_int
+					];
 				last if $first_int == $second_int;
 
 				# wrap back around to sunday after friday
@@ -1071,7 +1145,7 @@ sub offset_weekdays {
 		my $day     = $1;
 		my $day_int = $wd_lookup{$day};
 		$sched_offset += $day_int * $day_increment;
-		return ($sched_offset);
+		push @offsets, [ $sched_offset, $day_int ];
 	}
 
 	# match range plus a day case
@@ -1084,20 +1158,25 @@ sub offset_weekdays {
 				$wd_lookup{$last_date} );
 
 		# push last day as a single, it's easy
-		push @offsets, $last_date * $day_increment + $sched_offset;
+		push @offsets,
+			[ $last_int * $day_increment + $sched_offset, $last_int ];
 
 		# handle other date range the same as the last one
 		if ( $first_int < $second_int ) {
 
 		 # iterate over each day and push to return array - easy case, no wrap
 			while ( $first_int <= $second_int ) {
-				push @offsets, $first_int * $day_increment + $sched_offset;
+				push @offsets,
+					[ $first_int * $day_increment + $sched_offset, $first_int
+					];
 				$first_int++;
 			}
 		}
 		elsif ( $first_int > $second_int ) {
 			while (1) {
-				push @offsets, $first_int * $day_increment + $sched_offset;
+				push @offsets,
+					[ $first_int * $day_increment + $sched_offset, $first_int
+					];
 				last if $first_int == $second_int;
 
 				# wrap back around to sunday after friday
@@ -1112,6 +1191,23 @@ sub offset_weekdays {
 		return;
 	}
 	return @offsets;
+}
+
+# translate weekday string to code
+sub code_weekday {
+	my $weekday = shift;
+	my $rv;
+	given ($weekday) {
+		when (/monday/i)    { $rv = 1 }
+		when (/tuesday/i)   { $rv = 2 }
+		when (/wednesday/i) { $rv = 3 }
+		when (/thursday/i)  { $rv = 4 }
+		when (/friday/i)    { $rv = 5 }
+		when (/saturday/i)  { $rv = 6 }
+		when (/sunday/i)    { $rv = 0 }
+		default             { $rv = -1 };
+	}
+	return $rv;
 }
 
 # get handle for master on sql server
@@ -1158,7 +1254,9 @@ sub create_db {
 		"create table [TQASched].dbo.[Update_Schedule] (
 		sched_id int not null identity(1,1),
 		update_id int not null,
+		weekday tinyint not null,
 		sched_epoch int not null
+		
 	)"
 		)
 		or die "could not create Update_Schedule table\n", $dbh_sched->errstr;
@@ -1225,25 +1323,30 @@ sub find_sched {
 	my @files = readdir($dir_fh);
 	closedir $dir_fh;
 	say 'success. searching for latest checklist';
+
 	# TODO: find latest, create new (copy & rename blank checklist)
-	my $low     = 9**9**9;
+	my $low           = 9**9**9;
 	my $new_list_path = '';
-	say scalar @files. ' files to look at';
-	my $checklist_path = $cfg->checklist.'/';
+	say scalar @files . ' files to look at';
+	my $checklist_path = $cfg->checklist . '/';
 	for my $file (@files) {
 		next unless -f "$checklist_path$file";
 		my $score = -M "$checklist_path$file";
-		if ( $score < $low && $file =~ m/DailyChecklist/i && $file !~ m/Shortcut/i) {
-			$low     = $score;
+		if (    $score < $low
+			 && $file =~ m/DailyChecklist/i
+			 && $file !~ m/Shortcut/i )
+		{
+			$low           = $score;
 			$new_list_path = "$checklist_path$file";
 		}
 	}
 	say "best candidate: $new_list_path w/ $low";
-	my ($startdate, $enddate);
+	my ( $startdate, $enddate );
 	if ($new_list_path) {
+
 		# capture dates and months from name
 		if ( $new_list_path =~ m/(\d+)(\D*)-(\d+)(\D*)\./ ) {
-			($startdate, $enddate) = parse_months( $1, $2, $3, $4 );
+			( $startdate, $enddate ) = parse_months( $1, $2, $3, $4 );
 		}
 		else {
 			warn
@@ -1258,7 +1361,7 @@ sub find_sched {
 				   }
 		);
 	}
-	return ($new_list_path, $startdate, $enddate)
+	return ( $new_list_path, $startdate, $enddate );
 }
 
 # convert text month to number indexed starting at 0 in Jan
@@ -1267,8 +1370,8 @@ sub parse_months {
 
 	# some filtering for crap
 	$startmonth =~ s/(th|st|nd|rd)//;
-	$endmonth =~ s/(th|st|nd|rd)//;
-	
+	$endmonth   =~ s/(th|st|nd|rd)//;
+
 	# let's try to divine what the date range is from regex extractions
 	my ( $firstdate, $seconddate );
 
@@ -1281,6 +1384,7 @@ sub parse_months {
 
 		# crap it is probably just a preceding date in the same month
 		if ( $firstdate = ParseDate("$endmonth $startdate") ) {
+
 			# yay, it was
 			say "second pass $firstdate";
 		}
@@ -1296,9 +1400,10 @@ sub parse_months {
 		say "seconddate $seconddate";
 	}
 	else {
-		warn "unable to parse an enddate $enddate $endmonth for checklist file\n";
+		warn
+			"unable to parse an enddate $enddate $endmonth for checklist file\n";
 	}
-	return ($firstdate, $seconddate);
+	return ( $firstdate, $seconddate );
 }
 
 # poll auh metadata for DIS feed statuses
@@ -1480,8 +1585,8 @@ sub refresh_dis {
 # poll ops schedule Excel spreadsheet for legacy feed statuses
 sub refresh_legacy {
 
-	# attempt to download the latest spreadsheet from OpsDocs server
-	my $sched_xls = find_sched();
+	# attempt to find & download the latest spreadsheet from OpsDocs server
+	my ( $sched_xls, $startdate, $enddate ) = find_sched();
 
 	# create parser and parse xls
 	my $xlsparser = Spreadsheet::ParseExcel->new();
@@ -1498,7 +1603,7 @@ sub refresh_legacy {
 
 		# skip if this is an unrecognized worksheet
 		say "\tunable to parse weekday, skipping" and next
-			if $weekday_code eq 'U';
+			if $weekday_code == -1;
 
 		# find the row and column bounds for iteration
 		my ( $col_min, $col_max ) = $worksheet->col_range();
@@ -1514,9 +1619,7 @@ sub refresh_legacy {
 			my $row_data = {};
 			for ( my $col = $col_min; $col <= $col_max; $col++ ) {
 				my $cell = $worksheet->get_cell( $row, $col );
-				unless ( extract_row( $col, $cell, $row_data ) ) {
-
-					#last;
+				unless ( extract_row_daemon( $col, $cell, $row_data ) ) {
 				}
 				else {
 					if (    $row_data->{time_block}
@@ -1539,10 +1642,10 @@ sub refresh_legacy {
 			my $name        = $row_data->{update};
 			my $update_id   = get_update_id($name);
 			my $sched_query = "
-				select time, sched_id 
+				select sched_epoch, sched_id 
 				from TQASched.dbo.Update_Schedule us
 				where update_id = $update_id
-				and weekday = '$weekday_code'
+				and weekday = $weekday_code
 			";
 
 			#say $sched_query and die;
@@ -1554,17 +1657,17 @@ sub refresh_legacy {
 				next;
 			}
 
-			my $exec_end     = gmtime(time);
+			#my $exec_end     = gmtime(time);
 			my $trans_offset = now_offset();
 			my $ontime;
 
 			# compare transaction execution time to schedule offset
-			my $cmp_result = comp_offsets( $exec_end, $sched_offset );
+			my $cmp_result = comp_offsets( $trans_offset, $sched_offset );
 
 			# if it's within an hour of the scheduled time, mark as on time
 			# could also be early
 			if ( $cmp_result == 0 ) {
-				say "ontime $name $exec_end offset: $sched_offset";
+				say "ontime $name $trans_offset offset: $sched_offset";
 				update_history( { update_id    => $update_id,
 								  sched_id     => $sched_id,
 								  trans_offset => $trans_offset,
@@ -1578,7 +1681,7 @@ sub refresh_legacy {
 			# otherwise it either has not come in or it is late
 			# late
 			elsif ( $cmp_result == 1 ) {
-				say "late $name $exec_end to offset: $sched_offset";
+				say "late $name $trans_offset to offset: $sched_offset";
 				update_history( { update_id    => $update_id,
 								  sched_id     => $sched_id,
 								  trans_offset => $trans_offset,
@@ -1591,7 +1694,7 @@ sub refresh_legacy {
 
 			# possibly just not recvd yet
 			elsif ( $cmp_result == -1 ) {
-				say "waiting on $name, last trans: $exec_end";
+				say "waiting on $name, last trans: $trans_offset";
 			}
 			else {
 				warn
@@ -1601,8 +1704,6 @@ sub refresh_legacy {
 		}
 	}
 }
-
-
 
 # write a severity/type tagged message to target logfile
 sub write_log {

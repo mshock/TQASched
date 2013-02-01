@@ -159,7 +159,7 @@ sub print_table {
 	my $wd = get_wd();
 
 	my $select_schedule = "
-	  select us.sched_id, us.update_id, us.time, u.name
+	  select us.sched_id, us.update_id, us.sched_epoch, u.name
 	  from [TQASched].[dbo].[Update_Schedule] us,
 	  [TQASched].[dbo].[Updates] u
 	  where weekday = '$wd'
@@ -167,7 +167,7 @@ sub print_table {
 	";
 
 	my $select_history = "
-		select hist_id, time, filedate, filenum, timestamp, late
+		select hist_id, hist_epoch, filedate, filenum, timestamp, late
 		from [TQASched].[dbo].[Update_History]
 		where
 		sched_id = ?
@@ -263,7 +263,7 @@ sub calc_datetime {
 
 # returns code for passed date
 sub get_wd {
-	my @weekdays = qw(N M T W R F S);
+	my @weekdays = qw(0 1 2 3 4 5 6);
 	my ( $month, $day, $year ) = ( $headerdate =~ m!(\d+)/(\d+)/(\d+)! );
 	my $time = timegm( 0, 0, 0, $day, $month - 1, $year - 1900 );
 	my ( $sec, $min, $hour, $mday, $mon, $y, $wday, $yday, $isdst )
@@ -273,7 +273,8 @@ sub get_wd {
 
 sub offset2time {
 	my $offset = shift;
-
+	my $day_offset = get_wd() * 86400;
+	$offset -= $day_offset;
 	my $hours   = int( $offset / 60 );
 	my $minutes = $offset - $hours * 60;
 	return sprintf '%02u:%02u', $hours, $minutes;

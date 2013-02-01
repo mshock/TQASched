@@ -15,7 +15,7 @@ my $cfg     = load_conf('..');
 my $refresh = $cfg->refresh;
 
 # redirect that STDERR if it's not going to the term
-redirect_stderr( $cfg->report_log ) if 1;
+redirect_stderr( $cfg->report_log ) if caller;
 
 # we only need the handle for TQASched db in the report! that's all, folks!
 my ($dbh_sched) = refresh_handles();

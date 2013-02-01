@@ -19,15 +19,13 @@ use Exporter 'import';
 
 # stuff to export to portal and daemon
 our @EXPORT
-	= qw(load_conf refresh_handles kill_handles write_log usage redirect_stderr exec_time @dbhs @CLI)
-	;
-
-# shared db handle variables
-our @dbhs = our ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
-				  $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 );
+	= qw(load_conf refresh_handles kill_handles write_log usage redirect_stderr exec_time @db_hrefs @CLI);
 
 # for saving @ARGV values for later consumption
 our @CLI = @ARGV;
+
+our @db_hrefs = my (  $sched_db, $auh_db,  $prod1_db, $dis1_db,
+	   $dis2_db,  $dis3_db, $dis4_db,  $dis5_db );
 
 # return if being imported as module rather than run directly - also snarky import messages are fun
 # INV: experimental... does this work in a use/require? I think so!
@@ -51,29 +49,27 @@ if ( my @subscript = caller ) {
 say
 	'TQASched module running in direct control mode, can you feel the POWER?!';
 
-
 say 'parsing CLI and file configs (om nom nom)...';
+
 # the ever-powerful and needlessly vigilant config variable - seriously
 my $cfg = load_conf();
 
 # no verbosity check! too bad i can't unsay what's been say'd
 # send all these annoying remarks to dev/null, or close as we can get
-disable_say() unless ($cfg->verbose);
+disable_say() unless $cfg->verbose;
 
 # user has requested some help. or wants to read the manpage. fine.
 usage() if $cfg->help;
 
 say 'initializing and nurturing a fresh crop of database handles...';
 
-# private variables associated with different db handles
-my ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
-	 $dis2_db,  $dis3_db, $dis4_db,  $dis5_db );
-
 say '	*dial-up modem screech* (apologies, running old tech)';
 
 # refresh those handles for the first time
 # just to make sure that any and all subs have live handles
-refresh_handles();
+my ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
+	 $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5
+) = refresh_handles();
 
 say 'finished. TQASched all warmed up and revving to go go go ^_^';
 
@@ -84,7 +80,8 @@ if ( $cfg->dryrun ) {
 		say
 			'detected possible unconsumed commandline arguments and nolonger hungry';
 	}
-	say sprintf 'dryrun completed in %u seconds. run along now little technomancer',
+	say sprintf
+		'dryrun completed in %u seconds. run along now little technomancer',
 		exec_time();
 	exit;
 }
@@ -911,7 +908,7 @@ sub define_defaults {
 
 		# periodicity of the daemon loop (seconds to sleep)
 		daemon_update_frequency => { DEFAULT => 60,
-									 ALIAS   => 'update_freq',
+									 ALIAS   => 'update_freq|freq',
 		},
 
 		# daemon logfile path

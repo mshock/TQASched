@@ -13,48 +13,42 @@ my $cfg = load_conf('..');
 # redirect that STDERR if it's not going to the term
 redirect_stderr( $cfg->daemon_log ) if caller;
 
+say 'taking a peek at my handles';
+
+# define all the database information in these hrefs
+my ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
+	 $dis2_db,  $dis3_db, $dis4_db,  $dis5_db ) = @db_hrefs;
+
+my (  $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
+	   $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5
+	) = refresh_handles();
 # load shared database handles for use in the daemon
 # INV: move all database work to the module, just call subs
-my ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
-	 $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5
-) = @dbhs;
-
-# trap interrupts to prevent exiting mid-update
-$SIG{'INT'} = 'INT_handler';
-
-my $not_interrupted = 1;
-my $daemon_lock     = 0;
+say 'done looking at handles!';
 
 say
 	'hold onto your butts, the daemon is beginning its infinite duty cycle (or until otherwise notified, mangled, and/or killed)';
 
-while ($not_interrupted) {
-
-	# lock against manual interrupts
-	$daemon_lock = 1;
-	say 'daemon lock acquired, launching missiles...';
+while (1) {
 
 	# reload configs each run
-	$cfg = load_conf();
+	$cfg = load_conf('..');
+	say 'configs reloaded, checking out some new db handles';
 
 	# get new db handles each time
-	refresh_handles();
+	(  $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
+	   $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5
+	)  = refresh_handles();
 
 # fork a couple processes to examine updates and consider scheduling implications
-	fork or refresh_dis();
-	fork or refresh_legacy();
+	say 'got new db handles, running tasks';
+	refresh_dis();
+	refresh_legacy();
 
-	if ( $daemon_lock > 1 ) {
-		say sprintf( 'update completed, caught %u interrupts during update',
-					 $daemon_lock - 1 );
-		say 'interrupting TQASched services';
-		exit(0);
-	}
-	else {
-		$daemon_lock = 0;
-	}
-	say "daemon run finished, sleeping for ${\$cfg->freq} seconds...";
-	kill_handles();
+	say 'daemon run finished, killing db handles';
+	kill_handles( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
+				  $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 );
+	say "sleeping for ${\$cfg->freq} seconds...";
 	sleep( $cfg->freq );
 }
 
@@ -356,24 +350,6 @@ sub refresh_xls {
 				next;
 			}
 		}
-	}
-}
-
-# interrupt (Ctrl+C) signal handler
-# postpones interrupts recieved during update until finished
-sub INT_handler {
-	if ($daemon_lock) {
-
-		# count the number of interrupts caught
-		# also tracks whether interrupt was caught
-		$daemon_lock++;
-		say 'SIGINT caught, exiting when daemon releases update lock...';
-	}
-	else {
-
-		# if not locked, business as usual
-		say 'interrupted';
-		exit(0);
 	}
 }
 

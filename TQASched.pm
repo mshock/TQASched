@@ -1,25 +1,22 @@
-#! perl -w
+#! perl
 
 package TQASched;
 
 use strict;
+no warnings "all";
 use feature qw(say switch);
 use Spreadsheet::ParseExcel;
 use Spreadsheet::ParseExcel::Utility qw(ExcelFmt);
 use DBI;
-use Date::Manip qw(ParseDate DateCalc Delta_Format UnixDate);
+use Date::Manip qw(ParseDate DateCalc Delta_Format UnixDate Date_SetTime);
 use Pod::Usage qw(pod2usage);
 use AppConfig qw(:argcount);
 use Exporter 'import';
 
-# opts d,i,e for initialization (drop, create, and populate db)
-# opt s for daemon mode (with webserver)
-# opt t to run only webserver (for testing)
-# no CLI args assumes
-
 # stuff to export to portal and daemon
 our @EXPORT
-	= qw(load_conf refresh_handles kill_handles write_log usage redirect_stderr exec_time @db_hrefs @CLI);
+	= qw(load_conf refresh_handles kill_handles write_log usage redirect_stderr exec_time find_sched refresh_legacy refresh_dis @db_hrefs @CLI);
+#our @EXPORT_OK = qw(refresh_legacy refresh_dis);
 
 # for saving @ARGV values for later consumption
 our @CLI = @ARGV;
@@ -28,7 +25,6 @@ our @db_hrefs = my ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
 					 $dis2_db,  $dis3_db, $dis4_db,  $dis5_db );
 
 # return if being imported as module rather than run directly - also snarky import messages are fun
-# INV: experimental... does this work in a use/require? I think so!
 if ( my @subscript = caller ) {
 
 	# shut up if this is loaded by the report, you'll screw with the protocol!
@@ -57,6 +53,7 @@ my $cfg = load_conf();
 # no verbosity check! too bad i can't unsay what's been say'd
 # send all these annoying remarks to dev/null, or close as we can get
 disable_say() unless $cfg->verbose;
+disable_warn() if !$cfg->enable_warn || !$cfg->verbose;
 
 # user has requested some help. or wants to read the manpage. fine.
 usage() if $cfg->help;
@@ -119,81 +116,6 @@ sub exec_time {
 	return time - $^T;
 }
 
-# match DIS feeds from AUH to spreadsheet names in db
-sub import_dis {
-
-	say 'importing DIS feed mapping info...';
-
-	# create linking table
-	$dbh_sched->do( "
-		create table [TQASched].dbo.[Update_DIS] (
-		update_dis_id int not null identity(1,1),
-		feed_id varchar(20) not null,
-		update_id int not null
-		)
-	" )
-		or warn
-		"\tcould not create DIS linking table - Update_DIS, may already exist\n";
-
-	# open mapping file, populate mapping table
-	open( MAP, '<', 'mapping.csv' );
-	while (<MAP>) {
-		chomp;
-		my ( $name, $feed_id, $dis );
-		if (m/"(.*)",(.*)/) {
-			( $name, $feed_id ) = ( $1, $2 );
-		}
-		else {
-			( $name, $feed_id ) = split ',';
-		}
-
-		my $update_id = get_update_id($name);
-
-		#	or
-		#	warn "could not find update_id for $name\n"
-		#	and next;
-
-		# if update_id not found, probably an enumerated feed
-		unless ($update_id) {
-
-			# attempt to retrieve all enumerations
-			my $rows_aref = $dbh_sched->selectall_arrayref( "
-				select update_id, name
-				from [TQASched].dbo.[Updates]
-				where name like '$name%'
-			" )
-				or warn "\terror attempting to select enums for $name\n";
-
-			# this is unrecognizable... warn and go to next
-			( warn "\tsanity check failed for $name - not an enum\n"
-			   and next )
-				unless @$rows_aref;
-
-			# iterate over enumerations in feed and link to the same feed_id
-			for my $row_aref ( @{$rows_aref} ) {
-				my ( $update_id, $name ) = @{$row_aref};
-				$dbh_sched->do( "
-					insert into [TQASched].dbo.[Update_DIS]
-					values ('$feed_id',$update_id)
-				" )
-					or warn
-					"\tcould not insert mapping for : $feed_id / $update_id -> $name\n";
-			}
-		}
-
-		# otherwise store mapping
-		else {
-			$dbh_sched->do( "
-				insert into [TQASched].dbo.[Update_DIS]
-				values ('$feed_id',$update_id)
-			" )
-				or warn
-				"\tcould not insert mapping for : $feed_id / $update_id -> $name\n";
-		}
-	}
-	close MAP;
-}
-
 # fill database with initial scheduling data
 sub init_sched {
 
@@ -204,7 +126,7 @@ sub init_sched {
 	my $workbook  = $xlsparser->parse($sched_xls)
 		or die "unable to parse spreadsheet: $sched_xls\n",
 		$xlsparser->error();
-	say 'done';
+	say 'done loading master spreadsheet Excel file';
 
 	# optionally create database and tables
 	( create_db() or die "failed to create database\n" ) if $cfg->create_db;
@@ -213,51 +135,44 @@ sub init_sched {
 
 	# iterate over each weekday (worksheets)
 	for my $worksheet ( $workbook->worksheets() ) {
-		my $weekday = $worksheet->get_name();
-		say "parsing $weekday...";
-		my $weekday_code = code_weekday($weekday);
+		my $sheet_name = $worksheet->get_name();
+
+		# guess we're only doing daily updates for now
+		next unless $sheet_name =~ m/daily/i;
+		say "parsing $sheet_name...";
+
+		#my $weekday_code = code_weekday($weekday);
 
 		# skip if this is an unrecognized worksheet
-		say "\tunable to parse weekday, skipping" and next
-			if $weekday_code eq 'U';
+		#say "\tunable to parse weekday, skipping" and next
+		#		if $weekday_code eq 'U';
 
 		# find the row and column bounds for iteration
 		my ( $col_min, $col_max ) = $worksheet->col_range();
 		my ( $row_min, $row_max ) = $worksheet->row_range();
 
-		my $sched_block = '';
+		#my $sched_block = '';
 
 		# iterate over each row and store scheduling data
 		for ( my $row = $row_min; $row <= $row_max; $row++ ) {
+
+			# skip header rows
 			next if $row <= 1;
 
 			# per-update hash of column values
 			my $row_data = {};
 			for ( my $col = $col_min; $col <= $col_max; $col++ ) {
 				my $cell = $worksheet->get_cell( $row, $col );
-				unless ( extract_row( $col, $cell, $row_data ) ) {
-
-					#last;
-				}
-				else {
-					if (    $row_data->{time_block}
-						 && $sched_block ne $row_data->{time_block} )
-					{
-						$sched_block = $row_data->{time_block};
-					}
-					else {
-						$row_data->{time_block} = $sched_block;
-					}
-				}
+				extract_row( $col, $cell, $row_data );
 			}
 
 		   # skip rows that have no values, degenerates (ha)
 		   # also skip rows that have 'x' priority, not scheduled for that day
-			next if !$row_data->{update} || $row_data->{priority} eq 'x';
+		   #next if !$row_data->{update} || $row_data->{priority} eq 'x';
 
 			# attempt to store rows that had values
-			store_row( $weekday_code, $row_data, 0 )
-				or warn "\tfailed to store row $row for $weekday\n";
+			store_row($row_data)
+				or warn "\tfailed to store row $row for $sheet_name\n";
 		}
 	}
 
@@ -284,66 +199,114 @@ sub kill_handles {
 
 # server to be run in another process
 # hosts the report webmon
+# TODO: add code to fork server
 sub server {
-	exec;
+
 }
 
 # extract row into hash based on column number
+# for master spreadsheet ingestion
 sub extract_row {
 	my ( $col, $cell, $row_href ) = @_;
 
 	# get formatted excel value for most columns
-	my $value = $cell ? $cell->value() : '';
+	my $value = $cell ? $cell->value() : undef;
+
 	given ($col) {
 
-		# time scheduled/expected
+		# CT scheduled time
 		when (/^0$/) {
-
-			$row_href->{time_block} = $value if $value;
-		}
-
-		# update name (needs to be exactly the same every time)
-		when (/^1$/) {
-			$row_href->{update} = $value ? $value : return;
-		}
-
-		# priority - 'x' if not scheduled for the day
-		when (/^2$/) {
-			return unless $value;
-			$row_href->{priority} = $value;
-		}
-
-		# file date
-		when (/^3$/) {
-			return unless $value;
-
-			# extract unformatted datetime and convert to filedate integer
-			my $time_excel = $cell->unformatted();
-			my $value = ExcelFmt( 'yyyymmdd', $time_excel );
-
-			# skip if not scheduled for this day
-			$row_href->{filedate} = $value ? $value : return;
-		}
-
-		# file number
-		when (/^4$/) {
-			if ( $value ne '0' ) {
-				$row_href->{is_legacy} = 1;
-				$row_href->{filenum} = $value ? $value : return;
+			if ($value) {
+				$row_href->{cst_clock} = $value;
 			}
 			else {
-				$row_href->{is_legacy} = 0;
+
+				#warn "no value found in column 0 (CST)\n";
+				return;
 			}
 		}
 
-		# ID
-		when (/^5$/) {
-			$row_href->{id} = $value;
+		# GMT scheduled time
+		when (/^1$/) {
+			if ($value) {
+				$row_href->{sched_epoch} = time2offset($value);
+			}
+			else {
+
+				#warn "no value found in column 1 (GMT)\n";
+				return;
+			}
 		}
 
-		# comment
+		# update name
+		when (/^2$/) {
+			if ($value) {
+				$row_href->{update} = $value;
+			}
+			else {
+
+				#warn "no value found for column 2 (update)\n";
+				return;
+			}
+		}
+
+		# feed id
+		when (/^3$/) {
+			if ($value) {
+				$row_href->{feed_id} = $value;
+			}
+			else {
+
+				#warn "no value found for column 3 (feed id)\n";
+				return;
+			}
+		}
+
+		# DIS/Legacy flag
+		when (/^4$/) {
+			if ($value) {
+				if ( $value =~ m/legacy/i ) {
+					$row_href->{is_legacy} = 1;
+				}
+				elsif ( $value =~ m/dis/i ) {
+					$row_href->{is_legacy} = 0;
+				}
+				else {
+
+					#warn "unrecognized value in column 4 (legacy flag)\n";
+					return;
+				}
+			}
+			else {
+
+				#warn "no value found for column 4 (legacy flag)\n";
+				return;
+			}
+		}
+
+		# priority
+		when (/^5$/) {
+			if ( defined $value ) {
+				$row_href->{priority} = $value;
+			}
+			else {
+
+				#warn "no value found for column 5 (priority)\n";
+				return;
+			}
+
+		}
+
+		# day of week range scheduled
 		when (/^6$/) {
-			$row_href->{comment} = $value;
+			if ($value) {
+				$row_href->{days} = $value;
+			}
+			else {
+
+				#warn "no value found for column 6 (day/s of week)\n";
+				return;
+			}
 		}
 
 		# outside of parsing scope
@@ -355,93 +318,87 @@ sub extract_row {
 
 # analyze and store a row from scheduling spreadsheet in database
 sub store_row {
-	my $weekday_code = shift;
-	my $row_href     = shift;
-	my ( $update, $time_block, $priority, $is_legacy, $filedate, $filenum )
+	my $row_href = shift;
+	my ( $cst_clock, $sched_epoch, $update, $feed_id, $is_legacy, $priority,
+		 $days )
 		= map { $row_href->{$_} }
-		qw(update time_block priority is_legacy filedate filenum);
+		qw(cst_clock sched_epoch update feed_id is_legacy priority days);
 
-# if storing history (legacy filedate/filenum) rather than refreshing db image
-	my $history_flag = shift;
+	# cut any whitespace from feed_id
+	$feed_id =~ s/\s//g;
 
-	# only story legacy data from spreadsheet
-	if ($history_flag) {
-		return 1 unless $is_legacy;
-	}
+	# trim whitespace from update full name
+	$update =~ s/^\s*//;
+	$update =~ s/\s*$//;
 
 	# don't store row if not scheduled for today
 	# or row is blank
 	# but not an error so return true
 	return 1
 		unless $update =~ m/\w+/
-			&& defined $time_block
 			&& defined $priority;
 
 	# check if this update name has been seen before
-	my ( $update_id, $sched_id );
+	my $update_id;
+	unless ( $update_id = get_update_id($update) ) {
 
-	# storing history or not
-	unless ($history_flag) {
-		unless ( $update_id = get_update_id($update) ) {
+		warn
+			"\tmissing row info update: $update priority: $priority is_legacy: $is_legacy\n"
+			unless defined $update
+				&& defined $priority
+				&& defined $is_legacy;
 
-			warn
-				"\tmissing row info update: $update priority: $priority is_legacy: $is_legacy\n"
-				unless defined $update
-					&& defined $priority
-					&& defined $is_legacy;
-
-			# if not, insert it into the database
-			my $update_insert = "insert into [TQASched].dbo.[Updates] values 
+		# if not, insert it into the database
+		my $update_insert = "insert into [TQASched].dbo.[Updates] values 
 				('$update','$priority', '$is_legacy')";
-			$dbh_sched->do($update_insert)
-				or warn
-				"\terror inserting update: $update, probably already inserted\n",
-				$dbh_sched->errstr
-				and return;
-
-			# get the id of the new update
-			$update_id = get_update_id($update)
-				or warn "\tcould not retrieve last insert id\n",
-				$update, $dbh_sched->errstr
-				and return;
-
-		}
-
-		# put entry in scheduling table
-		my $time_offset  = time2offset($time_block);
-		my $sched_insert = "
-			insert into [TQASched].dbo.[Update_Schedule] values 
-				('$update_id','$weekday_code','$time_offset')
-		";
-		$dbh_sched->do($sched_insert)
+		$dbh_sched->do($update_insert)
 			or warn
-			"\tfailed to insert update schedule info for update: $update\n",
+			"\terror inserting update: $update, probably already inserted\n",
 			$dbh_sched->errstr
 			and return;
 
-	}
-	else {
-		unless ( $update_id = get_update_id($update) ) {
-			warn "\tcould not find update: $update\n" and return;
-		}
-		unless ( $sched_id = get_sched_id($update_id) ) {
-			warn "\tcould not find sched history ID: $update ID: $update_id\n"
-				and return;
-		}
-		my $time_offset = now_offset();
-		my ( $filedate, $filenum ) = my $history_insert = sprintf( "
-			insert into [TQASched].dbo.[Update_History] values
-			('$update_id', '$sched_id', '$time_offset', %s, %s, GetUTCDate(), )
-		", ( $filedate ? "$filedate" : 'NULL' ),
-			( $filenum ? "$filenum" : 'NULL' ) );
-		$dbh_sched->do($history_insert)
-			or warn "\tfailed to insert update history for udpate: $update\n";
+		# get the id of the new update
+		$update_id = get_update_id($update)
+			or warn "\tcould not retrieve last insert id\n",
+			$update, $dbh_sched->errstr
+			and return;
+
 	}
 
+  # okay, now there should be an entry in Updates, and the update_id is stored
+
+	# let's link this to DIS feed id, also taken from the sheet (thank God)
+	$dbh_sched->do(
+		"insert into [TQASched].dbo.[Update_DIS] values
+		('$feed_id', '$update_id')" )
+		or warn "\tfailed to insert $update : $update_id into DIS linking\n";
+
+	# insert scheduling info for each weekday
+	my @time_offsets = offset_weekdays( $sched_epoch, $days );
+	for my $this_offset (@time_offsets) {
+		$dbh_sched->do( "
+			insert into [TQASched].dbo.[Update_Schedule] values 
+				('$update_id','$this_offset')
+		" )
+			or warn
+			"\tfailed to insert update schedule info for update: $update id = $update_id & offset = $this_offset\n",
+			$dbh_sched->errstr;
+	}
+
+	# I guess double check that the Update made it in the table?
+	unless ( $update_id = get_update_id($update) ) {
+		warn "\tcould not find update: $update\n";
+	}
+	my $scheds_aref;
+
+	# verify that all days made it into the scheduling table
+	unless ( $scheds_aref = get_sched_id($update_id) ) {
+		warn "\tcould not find sched history ID: $update ID: $update_id\n";
+	}
+	return $scheds_aref;
 }
 
-# generate time offset for the current time IST
-# TODO: resolve times from spreadsheet and GMT
+# generate time offset for the current time GMT
 sub now_offset {
 
 	# calculate GM Time
@@ -450,16 +407,24 @@ sub now_offset {
 	return time2offset("$hour:$min");
 }
 
-# retrieve schedule ID from database for update ID
+# retrieve schedule IDs (aref of aref) from database for an update ID
 sub get_sched_id {
 	my ($update_id) = @_;
 
-	my ($res) = $dbh_sched->selectrow_array( "
-		select top 1 sched_id from [TQASched].dbo.[Update_Schedule]
-		where update_id = '$update_id'
-	" );
-	warn "\tno schedule id found for $update_id\n" unless $res;
-	return $res;
+	my $scheds_aref = $dbh_sched->selectall_arrayref( "
+		select sched_id, sched_epoch from [TQASched].dbo.[Update_Schedule]
+		where update_id = '$update_id'" );
+
+	my @scheds = ();
+	for my $sched_aref (@$scheds_aref) {
+		my ( $sched_id, $sched_epoch ) = @$sched_aref;
+		push @scheds, [ $sched_id, $sched_epoch ];
+	}
+
+	#warn "\tno. of schedule records does not match no. of days parsed\n"
+	#unless scalar @scheds == scalar ;
+
+	return \@scheds;
 }
 
 # returns code for current weekday
@@ -790,8 +755,8 @@ sub datetime2offset {
 
 }
 
-# convert time of day (24hr) into minute offset from 12:00am
-# TODO: compensate for GMT vs CST times
+# convert 24hr time to seconds offset from beginning of the day
+# next it will have a day offset in seconds added to it where Sunday = 0
 sub time2offset {
 	my $time_string = shift;
 	my ( $hours, $minutes ) = ( $time_string =~ m/(\d+):(\d+)/ );
@@ -799,7 +764,7 @@ sub time2offset {
 		warn "\tparsing error converting time to offset: $time_string\n";
 		return;
 	}
-	return $hours * 60 + $minutes;
+	return $hours * 3600 + $minutes * 60;
 }
 
 # get an update's id from name
@@ -862,17 +827,15 @@ sub appconfig_error {
 
 	# hacky way to force always writing this log to top-level dir
 	# despite the calling script's location
-	my $top_log
-		= ( __PACKAGE__ ne 'TQASched'
-			? $INC{'TQASched.pm'} =~ s!\w+\.pm!!gr
-			: '' )
-		. $cfg->log;
+	my $top_log = ( __PACKAGE__ ne 'TQASched'
+					? $INC{'TQASched.pm'} =~ s!\w+\.pm!!gr
+					: ''
+	) . $cfg->log;
 
-	write_log(
-		{ logfile => $top_log,
-		  type    => 'WARN',
-		  msg     => join( "\t", @_ ),
-		}
+	write_log( { logfile => $top_log,
+				 type    => 'WARN',
+				 msg     => join( "\t", @_ ),
+			   }
 	);
 }
 
@@ -946,13 +909,13 @@ sub define_defaults {
 							 ARGS    => '!',
 							 ALIAS   => 'create_db|c',
 		},
-		# link update ids to feed ids in DIS 
-		sched_import_dis => {
-			DEFAULT => 0,
-			ARGS => '!',
-			ALIAS => 'import_dis|m'
+
+		# link update ids to feed ids in DIS
+		sched_import_dis => { DEFAULT => 0,
+							  ARGS    => '!',
+							  ALIAS   => 'import_dis|m'
 		},
-		
+
 		# report (content gen script) configs
 		# report script's logfile
 		report_logfile => {
@@ -1030,6 +993,9 @@ sub define_defaults {
 		},
 		default_logfile => { DEFAULT => 'TQASched.log',
 							 ALIAS   => 'log',
+		},
+		default_enable_warn => { DEFAULT => 1,
+								 ALIAS   => 'enable_warn',
 		}
 	);
 
@@ -1046,21 +1012,106 @@ sub get_handle_hash {
 	};
 }
 
-# translate weekday string to code
-sub code_weekday {
-	my $weekday = shift;
-	my $rv;
-	given ($weekday) {
-		when (/monday/i)    { $rv = 'M' }
-		when (/tuesday/i)   { $rv = 'T' }
-		when (/wednesday/i) { $rv = 'W' }
-		when (/thursday/i)  { $rv = 'R' }
-		when (/friday/i)    { $rv = 'F' }
-		when (/saturday/i)  { $rv = 'S' }
-		when (/sunday/i)    { $rv = 'N' }
-		default             { $rv = 'U' };
+# translate weekday string to array of corresponding offsets
+sub offset_weekdays {
+	my ( $sched_offset, $days ) = @_;
+
+  # hardcoded hash of day to weekday integer (as from localtime - sunday is 0)
+	my %wd_lookup = ( Su => 0,
+					  M  => 1,
+					  T  => 2,
+					  W  => 3,
+					  Th => 4,
+					  F  => 5,
+					  Sa => 6,
+	);
+
+	my $day_increment = 86400;
+
+	# capture date range case
+	my @offsets = ();
+	if ( $days =~ m/(\w+)-(\w+)/ ) {
+		my ( $first_date, $second_date ) = ( $1, $2 );
+		my ( $first_int, $second_int )
+			= ( $wd_lookup{$first_date}, $wd_lookup{$second_date} );
+
+		# this should be the case most of the time
+
+		if ( $first_int < $second_int ) {
+
+		 # iterate over each day and push to return array - easy case, no wrap
+			while ( $first_int <= $second_int ) {
+				push @offsets, $first_int * $day_increment + $sched_offset;
+				$first_int++;
+			}
+
+		}
+		elsif ( $first_int > $second_int ) {
+			while (1) {
+				push @offsets, $first_int * $day_increment + $sched_offset;
+				last if $first_int == $second_int;
+
+				# wrap back around to sunday after friday
+				if ( ++$first_int > 6 ) {
+					$first_int = 0;
+				}
+			}
+
+		}
+		else {
+			warn
+				"failed sanity check: $first_date:$first_int $second_date:$second_int\n";
+			return;
+		}
+
 	}
-	return $rv;
+
+	# capture single day case
+	elsif ( $days =~ m/^\s*(\w+)\s*$/ ) {
+		my $day     = $1;
+		my $day_int = $wd_lookup{$day};
+		$sched_offset += $day_int * $day_increment;
+		return ($sched_offset);
+	}
+
+	# match range plus a day case
+	elsif ( $days =~ m/(\w+)-(\w+), (\w+)/ ) {
+		my ( $first_date, $second_date, $last_date ) = ( $1, $2, $3 );
+
+		# lookup the corresponding ints for these days
+		my ( $first_int, $second_int, $last_int )
+			= ( $wd_lookup{$first_date}, $wd_lookup{$second_date},
+				$wd_lookup{$last_date} );
+
+		# push last day as a single, it's easy
+		push @offsets, $last_date * $day_increment + $sched_offset;
+
+		# handle other date range the same as the last one
+		if ( $first_int < $second_int ) {
+
+		 # iterate over each day and push to return array - easy case, no wrap
+			while ( $first_int <= $second_int ) {
+				push @offsets, $first_int * $day_increment + $sched_offset;
+				$first_int++;
+			}
+		}
+		elsif ( $first_int > $second_int ) {
+			while (1) {
+				push @offsets, $first_int * $day_increment + $sched_offset;
+				last if $first_int == $second_int;
+
+				# wrap back around to sunday after friday
+				if ( ++$first_int > 6 ) {
+					$first_int = 0;
+				}
+			}
+		}
+	}
+	else {
+		warn "unable to parse $days date range\n";
+		return;
+	}
+	return @offsets;
 }
 
 # get handle for master on sql server
@@ -1091,6 +1142,8 @@ sub create_db {
 		or die "could not create TQASched database\n";
 
 	# create the tables
+
+	# create update table
 	$dbh_sched->do(
 		"create table [TQASched].dbo.[Updates] (
 		update_id int not null identity(1,1),
@@ -1099,20 +1152,24 @@ sub create_db {
 		is_legacy bit
 	)"
 	) or die "could not create Updates table\n", $dbh_sched->errstr;
+
+	# create update/schedule linking table
 	$dbh_sched->do(
 		"create table [TQASched].dbo.[Update_Schedule] (
 		sched_id int not null identity(1,1),
 		update_id int not null,
-		sched_epoch DateTime not null
+		sched_epoch int not null
 	)"
 		)
 		or die "could not create Update_Schedule table\n", $dbh_sched->errstr;
+
+	# create history tracking table
 	$dbh_sched->do(
 		"create table [TQASched].dbo.[Update_History] (
 		hist_id int not null identity(1,1),
 		update_id int not null,
 		sched_id int not null,
-		hist_epoch DateTime,
+		hist_epoch int,
 		filedate int,
 		filenum tinyint,
 		timestamp DateTime,
@@ -1120,6 +1177,17 @@ sub create_db {
 	)"
 		)
 		or die "could not create Update_History table\n", $dbh_sched->errstr;
+
+	# create linking table from DIS feed_ids to update_ids
+	$dbh_sched->do( "
+		create table [TQASched].dbo.[Update_DIS] (
+		update_dis_id int not null identity(1,1),
+		feed_id varchar(20) not null,
+		update_id int not null
+		)
+	" )
+		or warn
+		"\tcould not create DIS linking table - Update_DIS, may already exist\n";
 
 	say 'done creating db';
 	return 1;
@@ -1151,16 +1219,390 @@ sub clear_schedule {
 
 # get latest schedule checklist
 sub find_sched {
-	opendir( my $dir_fh, $cfg->checklist );
+	say 'accessing checklist directory: ' . $cfg->checklist;
+	opendir( my $dir_fh, $cfg->checklist )
+		or warn "could open/find checklist dir" . $cfg->checklist . "$!\n";
 	my @files = readdir($dir_fh);
 	closedir $dir_fh;
-
+	say 'success. searching for latest checklist';
 	# TODO: find latest, create new (copy & rename blank checklist)
-	for (@files) {
-		say "\tfound: $_" and return $_ if /^DailyCheckList.*xls$/i;
+	my $low     = 9**9**9;
+	my $new_list_path = '';
+	say scalar @files. ' files to look at';
+	my $checklist_path = $cfg->checklist.'/';
+	for my $file (@files) {
+		next unless -f "$checklist_path$file";
+		my $score = -M "$checklist_path$file";
+		if ( $score < $low && $file =~ m/DailyChecklist/i && $file !~ m/Shortcut/i) {
+			$low     = $score;
+			$new_list_path = "$checklist_path$file";
+		}
 	}
-	write_log( { logfile => $cfg->log, type => 'ERROR', msg => } );
+	say "best candidate: $new_list_path w/ $low";
+	my ($startdate, $enddate);
+	if ($new_list_path) {
+		# capture dates and months from name
+		if ( $new_list_path =~ m/(\d+)(\D*)-(\d+)(\D*)\./ ) {
+			($startdate, $enddate) = parse_months( $1, $2, $3, $4 );
+		}
+		else {
+			warn
+				"could not find a valid checklist file (almost, though) - $new_list_path\n";
+		}
+
+	}
+	else {
+		write_log( { logfile => $cfg->log,
+					 type    => 'ERROR',
+					 msg     => "could not find the ops checklist!"
+				   }
+		);
+	}
+	return ($new_list_path, $startdate, $enddate)
 }
+
+# convert text month to number indexed starting at 0 in Jan
+sub parse_months {
+	my ( $startdate, $startmonth, $enddate, $endmonth ) = @_;
+
+	# some filtering for crap
+	$startmonth =~ s/(th|st|nd|rd)//;
+	$endmonth =~ s/(th|st|nd|rd)//;
+	
+	# let's try to divine what the date range is from regex extractions
+	my ( $firstdate, $seconddate );
+
+	if ( $firstdate = ParseDate("$startdate $startmonth") ) {
+
+		# yay it recognizes it as a date
+		say "first pass $firstdate";
+	}
+	else {
+
+		# crap it is probably just a preceding date in the same month
+		if ( $firstdate = ParseDate("$endmonth $startdate") ) {
+			# yay, it was
+			say "second pass $firstdate";
+		}
+		else {
+			warn
+				"could not parse a date out of $startdate / $startmonth / $endmonth from checklist filename\n";
+			return;
+		}
+	}
+
+	# this one should work every time
+	if ( $seconddate = ParseDate("$endmonth $enddate") ) {
+		say "seconddate $seconddate";
+	}
+	else {
+		warn "unable to parse an enddate $enddate $endmonth for checklist file\n";
+	}
+	return ($firstdate, $seconddate);
+}
+
+# poll auh metadata for DIS feed statuses
+sub refresh_dis {
+	my $current_wd     = now_wd();
+	my $current_offset = now_offset();
+
+	# get all updates expected for the current day
+	my $expected = "
+		select ud.feed_id, u.name, us.time, us.sched_id, us.update_id
+		from 
+			TQASched.dbo.Update_Schedule us,
+			TQASched.dbo.Update_DIS ud,
+			TQASched.dbo.Updates u
+		where ud.update_id = us.update_id
+		and us.weekday = '$current_wd'
+		and u.update_id = ud.update_id
+		";
+	my $sth_expected = $dbh_sched->prepare($expected);
+	$sth_expected->execute();
+	my $updates_aref = $sth_expected->fetchall_arrayref();
+
+	# iterate over each of them and determine if they are completed
+	for my $update_aref ( @{$updates_aref} ) {
+
+		# extract update info
+		my ( $feed_id, $name, $offset, $sched_id, $update_id )
+			= @{$update_aref};
+
+		# get build number (optional) from feed name
+		my ( $stripped_name, $build_num ) = $name =~ m/(.*)#(\d+)/;
+
+# double duty query
+# gets all needed info for non-enumerated feeds
+# gets DIS server (sender) for enumerated feeds to hit for build-specific details
+		my $transactions = "
+			select top 1 Status, ProcessTime, FileDate, FileNum, Sender, TransactionNumber, BuildTime 
+			from [TQALic].dbo.[PackageQueue] 
+			with (NOLOCK)
+			where TaskReference LIKE '%$feed_id%'
+			order by ProcessTime desc
+		";
+
+		my ( $status, $exec_end, $fd, $fn, $sender, $trans_num, $build_time )
+			= $dbh_prod1->selectrow_array($transactions);
+
+		# if this is an enumerated feed
+		# check the last execution time of that build
+		# in the correct DIS server
+		my $backdate_updates;
+		if ($build_num) {
+
+			# backdate builds packaged in the same UPD
+			my $backdate_query = "
+				select us.sched_id, u.name, u.update_id, uh.filedate
+				from tqasched.dbo.update_schedule us
+				join tqasched.dbo.updates u
+					on u.update_id = us.update_id
+				left join tqasched.dbo.update_history uh
+					on uh.sched_id = us.sched_id
+					and DateDiff(dd, [timestamp], GETUTCDATE()) < 1
+				where us.weekday = '$current_wd'
+				and u.name LIKE '$stripped_name%'
+			";
+
+			#say $backdate_query;
+
+			$backdate_updates
+				= $dbh_sched->selectall_arrayref($backdate_query);
+
+			my $dbh_dis = sender2dbh($sender);
+
+			# retrieve last transaction number for this build number
+			my $dis_trans = "
+				select top 1 DISTransactionNumber
+				from DataIngestionInfrastructure.dbo.MakeUpdateInfo
+				with (NOLOCK)
+				where BuildNumber = $build_num
+				and DataFeedId = '$feed_id'
+				
+				order by ExecutionDateTime desc
+			";
+
+			my ($trans_num) = $dbh_dis->selectrow_array($dis_trans)
+				or warn
+				"\tno transaction # found for enum feed $name, skipping\n"
+				and next;
+
+			# select this transaction from TQALic
+			# to get AUH process time, along with filenum and filedate
+			my $transactions = "
+				select top 1 Status, BuildTime, FileDate, FileNum, Sender, TransactionNumber, BuildTime 
+				from [TQALic].dbo.[PackageQueue] 
+				with (NOLOCK)
+				where TaskReference LIKE '%$feed_id%'
+				and TransactionNumber = $trans_num
+				and DateDiff(dd, [BuildTime], GETUTCDATE()) < 1
+				order by ProcessTime desc
+			";
+			( $status, $exec_end, $fd, $fn, $sender, $trans_num, $build_time )
+				= $dbh_prod1->selectrow_array($transactions)
+				or warn
+				"\tcould not find metadata for $name from trans #: $trans_num\n"
+				and next;
+
+		}
+
+		if ( defined $fd ) {
+			$fd =~ s/(\d+)-(\d+)-(\d+).*/$1$2$3/;
+		}
+
+		# check last feed execution endtime value to verify schedule data
+		# convert DateTime to offset and compare against current time
+		if ($exec_end) {
+
+			##say "found transaction for $name";
+			#my $trans_offset = datetime2offset($exec_end);
+
+			# no transaction offset means that the last one was a previous day
+			#if ( !$trans_offset ) {
+			#	say "\tmust be previous day $name";
+			#	next;
+			#}
+
+			# compare transaction execution time to schedule offset
+			my $cmp_result = comp_offsets( $exec_end, $offset );
+			my $trans_offset = datetime2offset($exec_end);
+
+			# if it's within an hour of the scheduled time, mark as on time
+			# could also be early
+			if ( $cmp_result == 0 ) {
+				say "ontime $name $exec_end offset: $offset";
+				update_history( { update_id    => $update_id,
+								  sched_id     => $sched_id,
+								  trans_offset => $trans_offset,
+								  late         => 'N',
+								  filedate     => $fd,
+								  filenum      => $fn
+								}
+				);
+				backdate( $backdate_updates, $trans_offset, 'N', $fd, $fn,
+						  $build_num, $sched_id );
+			}
+
+			# otherwise it either has not come in or it is late
+			# late
+			elsif ( $cmp_result == 1 ) {
+				say "late $name $exec_end to offset: $offset";
+				update_history( { update_id    => $update_id,
+								  sched_id     => $sched_id,
+								  trans_offset => $trans_offset,
+								  late         => 'Y',
+								  filedate     => $fd,
+								  filenum      => $fn
+								}
+				);
+				backdate( $backdate_updates, $trans_offset, 'Y', $fd, $fn,
+						  $build_num, $sched_id );
+			}
+
+			# possibly just not recvd yet
+			elsif ( $cmp_result == -1 ) {
+				say "waiting on $name, last trans: $exec_end";
+			}
+			else {
+				warn
+					"\tFAILED transaction offset sanity check: $name $$offset\n";
+				next;
+			}
+		}
+		else {
+			warn "\tno transactions found for $name : feed_id = $feed_id\n";
+			next;
+		}
+
+	}
+}
+
+# poll ops schedule Excel spreadsheet for legacy feed statuses
+sub refresh_legacy {
+
+	# attempt to download the latest spreadsheet from OpsDocs server
+	my $sched_xls = find_sched();
+
+	# create parser and parse xls
+	my $xlsparser = Spreadsheet::ParseExcel->new();
+	my $workbook  = $xlsparser->parse($sched_xls)
+		or die "unable to parse spreadsheet: $sched_xls\n",
+		$xlsparser->error();
+	say 'done';
+
+	# iterate over each weekday (worksheets)
+	for my $worksheet ( $workbook->worksheets() ) {
+		my $weekday = $worksheet->get_name();
+		say "parsing $weekday...";
+		my $weekday_code = code_weekday($weekday);
+
+		# skip if this is an unrecognized worksheet
+		say "\tunable to parse weekday, skipping" and next
+			if $weekday_code eq 'U';
+
+		# find the row and column bounds for iteration
+		my ( $col_min, $col_max ) = $worksheet->col_range();
+		my ( $row_min, $row_max ) = $worksheet->row_range();
+
+		my $sched_block = '';
+
+		# iterate over each row and store scheduling data
+		for ( my $row = $row_min; $row <= $row_max; $row++ ) {
+			next if $row <= 1;
+
+			# per-update hash of column values
+			my $row_data = {};
+			for ( my $col = $col_min; $col <= $col_max; $col++ ) {
+				my $cell = $worksheet->get_cell( $row, $col );
+				unless ( extract_row( $col, $cell, $row_data ) ) {
+
+					#last;
+				}
+				else {
+					if (    $row_data->{time_block}
+						 && $sched_block ne $row_data->{time_block} )
+					{
+						$sched_block = $row_data->{time_block};
+					}
+					else {
+						$row_data->{time_block} = $sched_block;
+					}
+				}
+			}
+
+			# skip unless filled in
+			next
+				unless $row_data->{update}
+					&& $row_data->{filedate}
+					&& $row_data->{filenum};
+
+			my $name        = $row_data->{update};
+			my $update_id   = get_update_id($name);
+			my $sched_query = "
+				select time, sched_id 
+				from TQASched.dbo.Update_Schedule us
+				where update_id = $update_id
+				and weekday = '$weekday_code'
+			";
+
+			#say $sched_query and die;
+			my ( $sched_offset, $sched_id )
+				= $dbh_sched->selectrow_array($sched_query);
+
+			unless ($sched_offset) {
+				warn "no schedule entry for $name : $update_id : $sched_id\n";
+				next;
+			}
+
+			my $exec_end     = gmtime(time);
+			my $trans_offset = now_offset();
+			my $ontime;
+
+			# compare transaction execution time to schedule offset
+			my $cmp_result = comp_offsets( $exec_end, $sched_offset );
+
+			# if it's within an hour of the scheduled time, mark as on time
+			# could also be early
+			if ( $cmp_result == 0 ) {
+				say "ontime $name $exec_end offset: $sched_offset";
+				update_history( { update_id    => $update_id,
+								  sched_id     => $sched_id,
+								  trans_offset => $trans_offset,
+								  late         => 'N',
+								  filedate     => $row_data->{filedate},
+								  filenum      => $row_data->{filenum}
+								}
+				);
+			}
+
+			# otherwise it either has not come in or it is late
+			# late
+			elsif ( $cmp_result == 1 ) {
+				say "late $name $exec_end to offset: $sched_offset";
+				update_history( { update_id    => $update_id,
+								  sched_id     => $sched_id,
+								  trans_offset => $trans_offset,
+								  late         => 'Y',
+								  filedate     => $row_data->{filedate},
+								  filenum      => $row_data->{filenum}
+								}
+				);
+			}
+
+			# possibly just not recvd yet
+			elsif ( $cmp_result == -1 ) {
+				say "waiting on $name, last trans: $exec_end";
+			}
+			else {
+				warn
+					"\tFAILED transaction offset sanity check: $name $sched_offset\n";
+				next;
+			}
+		}
+	}
+}
+
+
 
 # write a severity/type tagged message to target logfile
 sub write_log {

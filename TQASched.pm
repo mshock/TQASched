@@ -908,7 +908,7 @@ sub define_defaults {
 
 		# periodicity of the daemon loop (seconds to sleep)
 		daemon_update_frequency => { DEFAULT => 60,
-									 ALIAS   => 'update_freq|freq',
+									 ALIAS   => 'update_freq',
 		},
 
 		# daemon logfile path
@@ -1050,25 +1050,6 @@ sub code_weekday {
 		default             { $rv = 'U' };
 	}
 	return $rv;
-}
-
-# create a basic config file for the user to fill in
-sub init_conf {
-	open( my $conf, '>', 'tqa_sched.conf' )
-		or warn "\tcould not create config file: $!\n" and return;
-	print $conf '# basic config file
-# insert database connection info here
-[db]
-server=
-user=
-pwd=
-# optional configs
-[opts]
-# update frequency (in seconds) when running as daemon
-update_frequency=60
-http_port=8080';
-	close $conf;
-	return 1;
 }
 
 # get handle for master on sql server

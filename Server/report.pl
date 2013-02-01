@@ -5,7 +5,6 @@
 
 use strict;
 use feature qw(say switch);
-use DBI;
 use Time::Local qw(timegm);
 
 use lib '..';

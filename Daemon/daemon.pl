@@ -15,41 +15,36 @@ redirect_stderr( $cfg->daemon_log ) if caller;
 
 say 'taking a peek at my handles';
 
-# define all the database information in these hrefs
-my ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
-	 $dis2_db,  $dis3_db, $dis4_db,  $dis5_db ) = @db_hrefs;
-
+# load database handles for use in the daemon - test run
 my (  $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
 	   $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5
 	) = refresh_handles();
-# load shared database handles for use in the daemon
-# INV: move all database work to the module, just call subs
+
 say 'done looking at handles!';
 
 say
 	'hold onto your butts, the daemon is beginning its infinite duty cycle (or until otherwise notified, mangled, and/or killed)';
-
-while (1) {
-
+my $run_counter = 0;
+while (++$run_counter) {
+	say "daemon has awoken and is beginning cycle number $run_counter";
 	# reload configs each run
 	$cfg = load_conf('..');
 	say 'configs reloaded, checking out some new db handles';
 
-	# get new db handles each time
+	# get new db handles each run
 	(  $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
 	   $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5
 	)  = refresh_handles();
 
-# fork a couple processes to examine updates and consider scheduling implications
 	say 'got new db handles, running tasks';
 	refresh_dis();
 	refresh_legacy();
 
-	say 'daemon run finished, killing db handles';
+	say 'daemon run finished, slaying db handles';
 	kill_handles( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
 				  $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 );
-	say "sleeping for ${\$cfg->freq} seconds...";
-	sleep( $cfg->freq );
+	say "sleeping for ${\$cfg->update_freq} seconds...";
+	sleep( $cfg->update_freq );
 }
 
 # poll auh metadata for DIS feed statuses

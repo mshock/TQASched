@@ -68,3 +68,9 @@ sub handle_request {
 
 	print `perl ${\$cfg->target_script} $params_string`;
 }
+
+# INV: experimental END block
+# not sure if this will have script's scope
+END {
+	write_log({logfile => $cfg->server_log, msg => 'server has stopped', type => 'INFO'});
+}

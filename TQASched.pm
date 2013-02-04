@@ -95,61 +95,8 @@ if ( $num_args <= 1 ) {
 say sprintf "knocking out user request%s%s...",
   ( $num_args > 1 ? 's' : '' ), ( $num_args ? '' : 'if any' );
 
-# initialize scheduling database from master schedule Excel file
-init_sched() if $cfg->init_sched;
-
-# start web server and begin hosting web application
-my $server_pid = server() || 0 if $cfg->start_server;
-
-# start daemon keeping track of scheduling
-my $daemon_pid = daemon() || 0 if $cfg->start_daemon;
-
-# if no children were forked, we're done - say goodbye!
-unless ( $server_pid || $daemon_pid ) {
-	say 'finished with all requests - prepare to be returned THE TRUTH';
-}
-else {
-
-	# TODO: set the USR1 signal handler - for cleanly exiting
-	# print out some nice info
-	if ($server_pid) {
-		write_log(
-			{
-				logfile => $cfg->log,
-				msg =>
-"the server was started with PID: $server_pid on port ${\$cfg->port}",
-				type => 'INFO'
-			}
-		);
-	}
-	if ($daemon_pid) {
-		write_log(
-			{
-				logfile => $cfg->log,
-				msg =>
-"the daemon was started with PID: $daemon_pid with freq. ${\$cfg->freq}",
-				type => 'INFO'
-			}
-		);
-	}
-
- # wait for the children to mess up or get killed (they should run indefinitely)
-	my $dead_pid = wait();
-
-	# determine at least one of the culprits and complain
-	my $dead_child = ( $dead_pid == $server_pid ? 'server' : 'daemon' );
-
-	write_log(
-		{
-			logfile => $cfg->log,
-			msg =>
-			  "well, it looks like $dead_child died on us (or all children)\n",
-			type => 'ERROR'
-		}
-	);
-
-	exit(1);
-}
+# do all the various tasks requested in the config file and CLI args, if any
+execute_tasks();
 
 # THE TRUTH (oughta be 42, but that's 41 too many for perlwarn's liking)
 1;
@@ -178,6 +125,66 @@ sub init {
 	usage() if $cfg->help;
 
 	return \$cfg;
+}
+
+# run all user requested tasks when module is executed directly (rather than imported)
+sub execute_tasks {
+
+	# initialize scheduling database from master schedule Excel file
+	init_sched() if $cfg->init_sched;
+
+	# start web server and begin hosting web application
+	my $server_pid = server() || 0 if $cfg->start_server;
+
+	# start daemon keeping track of scheduling
+	my $daemon_pid = daemon() || 0 if $cfg->start_daemon;
+
+	# if no children were forked, we're done - say goodbye!
+	unless ( $server_pid || $daemon_pid ) {
+		say 'finished with all requests - prepare to be returned THE TRUTH';
+	}
+	else {
+
+		# TODO: set the USR1 signal handler - for cleanly exiting
+		# print out some nice info
+		if ($server_pid) {
+			write_log(
+				{
+					logfile => $cfg->log,
+					msg =>
+"the server was started with PID: $server_pid on port ${\$cfg->port}",
+					type => 'INFO'
+				}
+			);
+		}
+		if ($daemon_pid) {
+			write_log(
+				{
+					logfile => $cfg->log,
+					msg =>
+"the daemon was started with PID: $daemon_pid with freq. ${\$cfg->freq}",
+					type => 'INFO'
+				}
+			);
+		}
+
+ # wait for the children to mess up or get killed (they should run indefinitely)
+		my $dead_pid = wait();
+
+		# determine at least one of the culprits and complain
+		my $dead_child = ( $dead_pid == $server_pid ? 'server' : 'daemon' );
+
+		write_log(
+			{
+				logfile => $cfg->log,
+				msg =>
+"well, it looks like $dead_child died on us (or all children)\n",
+				type => 'ERROR'
+			}
+		);
+
+		exit(1);
+	}
 }
 
 # dryrun exit routine

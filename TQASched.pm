@@ -142,6 +142,11 @@ sub execute_tasks {
 	# if no children were forked, we're done - say goodbye!
 	unless ( $server_pid || $daemon_pid ) {
 		say 'finished with all requests - prepare to be returned THE TRUTH';
+		write_log({
+			type => 'INFO',
+			msg => sprintf('TQASched run completed in %u seconds', exec_time()),
+			logfile => $cfg->log
+		});
 	}
 	else {
 
@@ -194,19 +199,26 @@ sub dryrun {
 
 	# assume all is well
 	$exit_val = 0 unless defined $exit_val;
-
+	my $msg = '';
+	my $type = 'INFO';
 	# insert various tests that all is well here
 	if ( $num_args > 1 ) {
-
+		$msg = "detected possible unconsumed commandline arguments and no longer hungry\n";
 		# if it looks like the user is trying to do anything else
 		# warn and exit(1)
-		warn
-"detected possible unconsumed commandline arguments and nolonger hungry\n";
+		$type = 'WARN';
 		$exit_val++;
 	}
-	say sprintf
+	$msg .= sprintf
 	  'dryrun completed in %u seconds. run along now little technomancer',
 	  exec_time();
+
+	write_log({
+		logfile => $cfg->log,
+		msg => $msg,
+		type => $type,
+	}
+	);
 
 	# I prefer to return the exit value to the exit routine at toplevel
 	# it enforces that the script will exit no matter what if it is a dryrun
@@ -600,14 +612,14 @@ sub store_row {
 	return $scheds_aref;
 }
 
-# generate time offset for the current time GMT
+# generate time offset for the current time GMT (epoch seconds)
 sub now_offset {
 
 	# calculate GM Time
 	my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst ) =
 	  gmtime(time);
-	my $offset = time2offset("$hour:$min");
-	return 86400 * $wday + $offset + $sec;
+	#my $offset = time2offset("$hour:$min");
+	return $wday * 86400 + $hour * 3600 + $min * 60 + $sec;
 }
 
 # retrieve schedule IDs (aref of aref) from database for an update ID
@@ -698,11 +710,32 @@ sub offset_before {
 	return 0;
 }
 
+# compares two GMT offsets (current poll time vs scheduled time)
+# TODO: link to legacy updates in database for more exact/reliable timing
+sub comp_offsets_legacy {
+	my ($trans_offset, $sched_offset) = @_;
+	# get seconds difference
+	my $offset_diff = $trans_offset - $sched_offset;
+	# if the difference is greater than the allowed lateness... mark as late
+	if ($offset_diff > $cfg->late_threshold ) {
+		# return late
+		return 1;
+	}
+	# early, but not more than a day ago
+	elsif ($offset_diff < $cfg->late_threshold  && $offset_diff > -86400 ) {
+		return 0;
+	}
+	# otherwise we're still waiting
+	else {
+		return -1;
+	}
+}
+
 # compares offsets for timezone and day diff
 # to GMT
-sub comp_offsets {
+sub comp_offsets_dis {
 
-	# (		GMT		 ,		CST 	)
+	# (		GMT		 ,		GMT 	)
 	my ( $trans_offset_ts, $sched_offset ) = @_;
 
 	#my ( $trans_offset, $date_flag ) = datetime2offset($trans_offset_ts);
@@ -1208,7 +1241,6 @@ sub define_defaults {
 			ARGS    => '!',
 			ALIAS   => 'help|version|usage|h'
 		},
-
 # path to config file
 # (optional, I suppose if you wanted to list all database connection info in CLI args)
 		default_config_file => {
@@ -1230,7 +1262,11 @@ sub define_defaults {
 		default_enable_warn => {
 			DEFAULT => 1,
 			ALIAS   => 'enable_warn',
-		}
+		},
+		default_late_threshold => {
+			DEFAULT => 3600,
+			ALIAS => 'late_threshold',
+		},
 	);
 
 	$cfg->define( $_ => \%{ $config_vars{$_} } ) for keys %config_vars;
@@ -1575,13 +1611,13 @@ sub refresh_dis {
 
 	# get all updates expected for the current day
 	my $expected = "
-		select ud.feed_id, u.name, us.time, us.sched_id, us.update_id
+		select ud.feed_id, u.name, us.sched_epoch, us.sched_id, us.update_id
 		from 
 			TQASched.dbo.Update_Schedule us,
 			TQASched.dbo.Update_DIS ud,
 			TQASched.dbo.Updates u
 		where ud.update_id = us.update_id
-		and us.weekday = '$current_wd'
+		and us.weekday = $current_wd
 		and u.update_id = ud.update_id
 		";
 	my $sth_expected = $dbh_sched->prepare($expected);
@@ -1627,7 +1663,7 @@ sub refresh_dis {
 				left join tqasched.dbo.update_history uh
 					on uh.sched_id = us.sched_id
 					and DateDiff(dd, [timestamp], GETUTCDATE()) < 1
-				where us.weekday = '$current_wd'
+				where us.weekday = $current_wd
 				and u.name LIKE '$stripped_name%'
 			";
 
@@ -1689,8 +1725,9 @@ sub refresh_dis {
 			#}
 
 			# compare transaction execution time to schedule offset
-			my $cmp_result = comp_offsets( $exec_end, $offset );
 			my $trans_offset = datetime2offset($exec_end);
+			my $cmp_result = comp_offsets( $trans_offset, $offset );
+			
 
 			# if it's within an hour of the scheduled time, mark as on time
 			# could also be early
@@ -1750,6 +1787,7 @@ sub refresh_dis {
 sub refresh_legacy {
 
 	# attempt to find & download the latest spreadsheet from OpsDocs server
+	# TODO: verify that the date range is sane, otherwise create a new sheet
 	my ( $sched_xls, $startdate, $enddate ) = find_sched();
 
 	# create parser and parse xls
@@ -1797,11 +1835,9 @@ sub refresh_legacy {
 				}
 			}
 
-			# skip unless filled in
+			# skip unless update name filled in
 			next
-			  unless $row_data->{update}
-				  && $row_data->{filedate}
-				  && $row_data->{filenum};
+			  unless exists $row_data->{update};
 
 			my $name        = $row_data->{update};
 			my $update_id   = get_update_id($name);
@@ -1826,11 +1862,12 @@ sub refresh_legacy {
 			my $ontime;
 
 			# compare transaction execution time to schedule offset
-			my $cmp_result = comp_offsets( $trans_offset, $sched_offset );
+													# GMT now		# GMT sched
+			my $cmp_result = comp_offsets_legacy( $trans_offset, $sched_offset );
 
 			# if it's within an hour of the scheduled time, mark as on time
 			# could also be early
-			if ( $cmp_result == 0 ) {
+			if ( $cmp_result == 0 && $row_data->{filedate} && $row_data->{filenum}) {
 				say "ontime $name $trans_offset offset: $sched_offset";
 				update_history(
 					{
@@ -1863,6 +1900,17 @@ sub refresh_legacy {
 			# possibly just not recvd yet
 			elsif ( $cmp_result == -1 ) {
 				say "waiting on $name, last trans: $trans_offset";
+				say "late $name $trans_offset to offset: $sched_offset";
+				update_history(
+					{
+						update_id    => $update_id,
+						sched_id     => $sched_id,
+						trans_offset => -1,
+						late         => 'N',
+						filedate     => '',
+						filenum      => ''
+					}
+				);
 			}
 			else {
 				warn

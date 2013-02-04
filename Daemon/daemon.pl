@@ -6,7 +6,7 @@ use strict;
 use feature 'say';
 
 use lib '..';
-use TQASched;
+use TQASched qw(:all);
 
 my $cfg = load_conf('..');
 

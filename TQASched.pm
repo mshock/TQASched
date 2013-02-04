@@ -3,7 +3,6 @@
 package TQASched;
 
 use strict;
-no warnings "all";
 use feature qw(say switch);
 use Spreadsheet::ParseExcel;
 use Spreadsheet::ParseExcel::Utility qw(ExcelFmt);
@@ -13,12 +12,17 @@ use Pod::Usage qw(pod2usage);
 use AppConfig qw(:argcount);
 use Exporter 'import';
 
-# -i -c to initialize
+# options crash course:
+# -i -c to initialize database and populate with master scheduling
+# -s -d to start in server + daemon mode (normal execution)
 
-# stuff to export to portal and daemon
+# okay, head off config load and verbosity check here
+
+# stuff to export to all subscripts
 our @EXPORT =
   qw(load_conf refresh_handles kill_handles write_log usage redirect_stderr exec_time find_sched @db_hrefs @CLI);
 
+# anything used only in a single subscript goes here
 our @EXPORT_OK = qw(refresh_legacy refresh_dis);
 
 # add the :all tag to Exporter
@@ -27,6 +31,9 @@ our %EXPORT_TAGS = ( all => [ ( @EXPORT, @EXPORT_OK ) ] );
 # for saving @ARGV values for later consumption
 our @CLI = @ARGV;
 
+# shared database info loaded from configs
+# so that importers can create their own handles
+# INV: may be completely unecessary! kind of a scoping grey area - test when time
 our @db_hrefs = my (
 	$sched_db, $auh_db,  $prod1_db, $dis1_db,
 	$dis2_db,  $dis3_db, $dis4_db,  $dis5_db

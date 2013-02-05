@@ -7,7 +7,9 @@ use feature qw(say switch);
 use Spreadsheet::ParseExcel;
 use Spreadsheet::ParseExcel::Utility qw(ExcelFmt);
 use DBI;
-use Date::Manip qw(ParseDate DateCalc Delta_Format UnixDate Date_SetTime Date_DayOfWeek);
+use File::Copy;
+use Date::Manip
+	qw(ParseDate DateCalc Delta_Format UnixDate Date_DayOfWeek Date_GetPrev Date_ConvTZ);
 use Pod::Usage qw(pod2usage);
 use AppConfig qw(:argcount);
 use Exporter 'import';
@@ -19,8 +21,8 @@ use Exporter 'import';
 # okay, head off config load and verbosity check here
 
 # stuff to export to all subscripts
-our @EXPORT =
-  qw(load_conf refresh_handles kill_handles write_log usage redirect_stderr exec_time find_sched @db_hrefs @CLI);
+our @EXPORT
+	= qw(load_conf refresh_handles kill_handles write_log usage redirect_stderr exec_time find_sched @db_hrefs @CLI);
 
 # anything used only in a single subscript goes here
 our @EXPORT_OK = qw(refresh_legacy refresh_dis);
@@ -34,10 +36,8 @@ our @CLI = @ARGV;
 # shared database info loaded from configs
 # so that importers can create their own handles
 # INV: may be completely unecessary! kind of a scoping grey area - test when time
-our @db_hrefs = my (
-	$sched_db, $auh_db,  $prod1_db, $dis1_db,
-	$dis2_db,  $dis3_db, $dis4_db,  $dis5_db
-);
+our @db_hrefs = my ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
+					 $dis2_db,  $dis3_db, $dis4_db,  $dis5_db );
 
 # require/use bounce
 # return if being imported as module rather than run directly - also snarky import messages are fun
@@ -46,8 +46,8 @@ if ( my @subscript = caller ) {
 	# shut up if this is loaded by the report, you'll screw with the protocol!
 	# otherwise - loud and proud
 	say
-'imported TQASched module for your very own personal amusement! enjoy, pretty boy.'
-	  unless $subscript[1] =~ m/report/;
+		'imported TQASched module for your very own personal amusement! enjoy, pretty boy.'
+		unless $subscript[1] =~ m/report/;
 	return 1;
 }
 
@@ -58,7 +58,8 @@ if ( my @subscript = caller ) {
 # do not flagrantly call flags or risk corrupting/losing scheduling data, RTFM!
 #################################################################################
 
-say 'TQASched module running in direct control mode, can you feel the POWER?!';
+say
+	'TQASched module running in direct control mode, can you feel the POWER?!';
 
 say 'parsing CLI args and config file (om nom nom)...';
 
@@ -74,9 +75,8 @@ say 'initializing and nurturing a fresh crop of database handles...';
 say '	*dial-up modem screech* (apologies, running old tech)';
 
 # refresh those global handles for the first time
-my (
-	$dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
-	$dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5
+my ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
+	 $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5
 ) = refresh_handles();
 
 say 'finished. TQASched all warmed up and revving to go go go ^_^';
@@ -88,12 +88,12 @@ exit( dryrun($num_args) ) if $cfg->dryrun;
 # unless the config file tells it to do otherwise (nothing by default)
 if ( $num_args <= 1 ) {
 	say
-"no explicit arguments? sure hope ${\$cfg->conf_file} tells me what to do, oh silent one";
+		"no explicit arguments? sure hope ${\$cfg->conf_file} tells me what to do, oh silent one";
 }
 
 # let them know we're watching (if only barely)
 say sprintf "knocking out user request%s%s...",
-  ( $num_args > 1 ? 's' : '' ), ( $num_args ? '' : 'if any' );
+	( $num_args > 1 ? 's' : '' ), ( $num_args ? '' : 'if any' );
 
 # do all the various tasks requested in the config file and CLI args, if any
 execute_tasks();
@@ -142,11 +142,12 @@ sub execute_tasks {
 	# if no children were forked, we're done - say goodbye!
 	unless ( $server_pid || $daemon_pid ) {
 		say 'finished with all requests - prepare to be returned THE TRUTH';
-		write_log({
-			type => 'INFO',
-			msg => sprintf('TQASched run completed in %u seconds', exec_time()),
-			logfile => $cfg->log
-		});
+		write_log( { type => 'INFO',
+					 msg  => sprintf( 'TQASched run completed in %u seconds',
+									 exec_time() ),
+					 logfile => $cfg->log
+				   }
+		);
 	}
 	else {
 
@@ -154,37 +155,34 @@ sub execute_tasks {
 		# print out some nice info
 		if ($server_pid) {
 			write_log(
-				{
-					logfile => $cfg->log,
-					msg =>
-"the server was started with PID: $server_pid on port ${\$cfg->port}",
-					type => 'INFO'
+				{  logfile => $cfg->log,
+				   msg =>
+					   "the server was started with PID: $server_pid on port ${\$cfg->port}",
+				   type => 'INFO'
 				}
 			);
 		}
 		if ($daemon_pid) {
 			write_log(
-				{
-					logfile => $cfg->log,
-					msg =>
-"the daemon was started with PID: $daemon_pid with freq. ${\$cfg->freq}",
-					type => 'INFO'
+				{  logfile => $cfg->log,
+				   msg =>
+					   "the daemon was started with PID: $daemon_pid with freq. ${\$cfg->freq}",
+				   type => 'INFO'
 				}
 			);
 		}
 
- # wait for the children to mess up or get killed (they should run indefinitely)
+# wait for the children to mess up or get killed (they should run indefinitely)
 		my $dead_pid = wait();
 
 		# determine at least one of the culprits and complain
 		my $dead_child = ( $dead_pid == $server_pid ? 'server' : 'daemon' );
 
 		write_log(
-			{
-				logfile => $cfg->log,
-				msg =>
-"well, it looks like $dead_child died on us (or all children)\n",
-				type => 'ERROR'
+			{  logfile => $cfg->log,
+			   msg =>
+				   "well, it looks like $dead_child died on us (or all children)\n",
+			   type => 'ERROR'
 			}
 		);
 
@@ -199,25 +197,27 @@ sub dryrun {
 
 	# assume all is well
 	$exit_val = 0 unless defined $exit_val;
-	my $msg = '';
+	my $msg  = '';
 	my $type = 'INFO';
+
 	# insert various tests that all is well here
 	if ( $num_args > 1 ) {
-		$msg = "detected possible unconsumed commandline arguments and no longer hungry\n";
+		$msg
+			= "detected possible unconsumed commandline arguments and no longer hungry\n";
+
 		# if it looks like the user is trying to do anything else
 		# warn and exit(1)
 		$type = 'WARN';
 		$exit_val++;
 	}
 	$msg .= sprintf
-	  'dryrun completed in %u seconds. run along now little technomancer',
-	  exec_time();
+		'dryrun completed in %u seconds. run along now little technomancer',
+		exec_time();
 
-	write_log({
-		logfile => $cfg->log,
-		msg => $msg,
-		type => $type,
-	}
+	write_log( { logfile => $cfg->log,
+				 msg     => $msg,
+				 type    => $type,
+			   }
 	);
 
 	# I prefer to return the exit value to the exit routine at toplevel
@@ -244,8 +244,8 @@ sub init_sched {
 	# create parser and parse xls
 	my $xlsparser = Spreadsheet::ParseExcel->new();
 	my $workbook  = $xlsparser->parse($sched_xls)
-	  or die "unable to parse spreadsheet: $sched_xls\n",
-	  $xlsparser->error();
+		or die "unable to parse spreadsheet: $sched_xls\n",
+		$xlsparser->error();
 	say 'done loading master spreadsheet Excel file';
 
 	# optionally create database and tables
@@ -274,25 +274,25 @@ sub init_sched {
 		#my $sched_block = '';
 
 		# iterate over each row and store scheduling data
-		for ( my $row = $row_min ; $row <= $row_max ; $row++ ) {
+		for ( my $row = $row_min; $row <= $row_max; $row++ ) {
 
 			# skip header rows
 			next if $row <= 1;
 
 			# per-update hash of column values
 			my $row_data = {};
-			for ( my $col = $col_min ; $col <= $col_max ; $col++ ) {
+			for ( my $col = $col_min; $col <= $col_max; $col++ ) {
 				my $cell = $worksheet->get_cell( $row, $col );
 				extract_row_init( $col, $cell, $row_data );
 			}
 
-			# skip rows that have no values, degenerates (ha)
-			# also skip rows that have 'x' priority, not scheduled for that day
-			#next if !$row_data->{update} || $row_data->{priority} eq 'x';
+		   # skip rows that have no values, degenerates (ha)
+		   # also skip rows that have 'x' priority, not scheduled for that day
+		   #next if !$row_data->{update} || $row_data->{priority} eq 'x';
 
 			# attempt to store rows that had values
 			store_row($row_data)
-			  or warn "\tfailed to store row $row for $sheet_name\n";
+				or warn "\tfailed to store row $row for $sheet_name\n";
 		}
 	}
 
@@ -305,14 +305,11 @@ sub init_sched {
 # should be called often enough to keep them from going stale
 # especially for long-running scripts (daemon)
 sub refresh_handles {
-	return (
-		$dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
-		$dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5
-	  )
-	  = map { init_handle($_) } (
-		$sched_db, $auh_db,  $prod1_db, $dis1_db,
-		$dis2_db,  $dis3_db, $dis4_db,  $dis5_db
-	  );
+	return ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
+			 $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 )
+		= map { init_handle($_) } ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
+									$dis2_db,  $dis3_db, $dis4_db,  $dis5_db
+		);
 }
 
 # close database handles
@@ -458,7 +455,7 @@ sub extract_row_init {
 
 		# outside of parsing scope
 		# return and go to next row
-		default { return };
+		default {return};
 	}
 	return 1;
 }
@@ -524,7 +521,7 @@ sub extract_row_daemon {
 
 		# outside of parsing scope
 		# return and go to next row
-		default { return };
+		default {return};
 	}
 	return 1;
 }
@@ -533,9 +530,9 @@ sub extract_row_daemon {
 sub store_row {
 	my $row_href = shift;
 	my ( $cst_clock, $sched_epoch, $update, $feed_id, $is_legacy, $priority,
-		$days )
-	  = map { $row_href->{$_} }
-	  qw(cst_clock sched_epoch update feed_id is_legacy priority days);
+		 $days )
+		= map { $row_href->{$_} }
+		qw(cst_clock sched_epoch update feed_id is_legacy priority days);
 
 	# cut any whitespace from feed_id
 	$feed_id =~ s/\s//g;
@@ -548,43 +545,44 @@ sub store_row {
 	# or row is blank
 	# but not an error so return true
 	return 1
-	  unless $update =~ m/\w+/
-		  && defined $priority;
+		unless $update =~ m/\w+/
+			&& defined $priority;
 
 	# check if this update name has been seen before
 	my $update_id;
 	unless ( $update_id = get_update_id($update) ) {
 
 		warn
-"\tmissing row info update: $update priority: $priority is_legacy: $is_legacy\n"
-		  unless defined $update
-			  && defined $priority
-			  && defined $is_legacy;
+			"\tmissing row info update: $update priority: $priority is_legacy: $is_legacy\n"
+			unless defined $update
+				&& defined $priority
+				&& defined $is_legacy;
 
 		# if not, insert it into the database
 		my $update_insert = "insert into [TQASched].dbo.[Updates] values 
 				('$update','$priority', '$is_legacy')";
 		$dbh_sched->do($update_insert)
-		  or warn
-		  "\terror inserting update: $update, probably already inserted\n",
-		  $dbh_sched->errstr
-		  and return;
+			or warn
+			"\terror inserting update: $update, probably already inserted\n",
+			$dbh_sched->errstr
+			and return;
 
 		# get the id of the new update
 		$update_id = get_update_id($update)
-		  or warn "\tcould not retrieve last insert id\n",
-		  $update, $dbh_sched->errstr
-		  and return;
+			or warn "\tcould not retrieve last insert id\n",
+			$update, $dbh_sched->errstr
+			and return;
 
 	}
 
-	# okay, now there should be an entry in Updates, and the update_id is stored
+  # okay, now there should be an entry in Updates, and the update_id is stored
 
 	# let's link this to DIS feed id, also taken from the sheet (thank God)
 	$dbh_sched->do(
 		"insert into [TQASched].dbo.[Update_DIS] values
 		('$feed_id', '$update_id')"
-	) or warn "\tfailed to insert $update : $update_id into DIS linking\n";
+		)
+		or warn "\tfailed to insert $update : $update_id into DIS linking\n";
 
 	# insert scheduling info for each weekday
 	my @time_offsets = offset_weekdays( $sched_epoch, $days );
@@ -594,9 +592,9 @@ sub store_row {
 			insert into [TQASched].dbo.[Update_Schedule] values 
 				('$update_id','$weekday_code','$this_offset')
 		" )
-		  or warn
-"\tfailed to insert update schedule info for update: $update id = $update_id & offset = $this_offset\n",
-		  $dbh_sched->errstr;
+			or warn
+			"\tfailed to insert update schedule info for update: $update id = $update_id & offset = $this_offset\n",
+			$dbh_sched->errstr;
 	}
 
 	# I guess double check that the Update made it in the table?
@@ -616,8 +614,9 @@ sub store_row {
 sub now_offset {
 
 	# calculate GM Time
-	my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst ) =
-	  gmtime(time);
+	my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst )
+		= gmtime(time);
+
 	#my $offset = time2offset("$hour:$min");
 	return $wday * 86400 + $hour * 3600 + $min * 60 + $sec;
 }
@@ -644,8 +643,9 @@ sub get_sched_id {
 
 # returns code for current weekday
 sub now_wd {
-	my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst ) =
-	  gmtime(time);
+	my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst )
+		= gmtime(time);
+
 	#my @weekdays = qw(N M T W R F S);
 	return $wday;
 }
@@ -653,8 +653,8 @@ sub now_wd {
 # update all older builds issued in the same update
 sub backdate {
 	my ( $backdate_updates, $trans_offset, $late, $fd, $fn, $build_num,
-		$orig_sched_id )
-	  = @_;
+		 $orig_sched_id )
+		= @_;
 
 	for my $backdate_rowaref ( @{$backdate_updates} ) {
 		my ( $sched_id, $name, $update_id, $filedate ) = @{$backdate_rowaref};
@@ -662,19 +662,17 @@ sub backdate {
 
 # only backdate earlier build numbers which have no history yet and are scheduled for earlier in the day
 		next
-		  unless $bn < $build_num
-			  && !$filedate
-			  && $orig_sched_id > $sched_id;
+			unless $bn < $build_num
+				&& !$filedate
+				&& $orig_sched_id > $sched_id;
 		say "backdating $name - $bn";
-		update_history(
-			{
-				update_id    => $update_id,
-				sched_id     => $sched_id,
-				trans_offset => $trans_offset,
-				late         => $late,
-				filedate     => $fd,
-				filenum      => $fn
-			}
+		update_history( { update_id    => $update_id,
+						  sched_id     => $sched_id,
+						  trans_offset => $trans_offset,
+						  late         => $late,
+						  filedate     => $fd,
+						  filenum      => $fn
+						}
 		);
 	}
 }
@@ -713,18 +711,23 @@ sub offset_before {
 # compares two GMT offsets (perceived trans time vs scheduled time)
 # TODO: intelligently handle week boundary
 sub comp_offsets {
-	my ($trans_offset, $sched_offset) = @_;
+	my ( $trans_offset, $sched_offset ) = @_;
+
 	# get seconds difference
 	my $offset_diff = $trans_offset - $sched_offset;
+
 	# if the difference is greater than the allowed lateness... mark as late
-	if ($offset_diff > $cfg->late_threshold ) {
+	if ( $offset_diff > $cfg->late_threshold ) {
+
 		# return late
 		return 1;
 	}
+
 	# early but not more than a day ago or within acceptable late threshold
-	elsif ($offset_diff < $cfg->late_threshold  && $offset_diff > -86400 ) {
+	elsif ( $offset_diff < $cfg->late_threshold && $offset_diff > -86400 ) {
 		return 0;
 	}
+
 	# otherwise we're still waiting
 	else {
 		return -1;
@@ -744,7 +747,7 @@ sub comp_offsets_old {
 	my $sched_string = offset2time($sched_offset);
 
 	my $parsed_sched = ParseDate("$sched_string")
-	  or warn "DM parser error\n";
+		or warn "DM parser error\n";
 	my $schedule_adjust = 6;
 
 	# Morning adjust (end of previous day, CST)
@@ -774,13 +777,13 @@ sub comp_offsets_old {
 
 	# adjust CST to GMT
 	$parsed_sched = DateCalc( "$sched_string", "in $schedule_adjust hours" )
-	  or warn "parse 4\n";
+		or warn "parse 4\n";
 
 	my $date_delta = DateCalc( $parsed_sched, $parsed_trans )
-	  or warn "parse 5\n";
+		or warn "parse 5\n";
 
 	my $hrs_diff = Delta_Format( $date_delta, 2, '%ht' )
-	  or warn "parse 6\n";
+		or warn "parse 6\n";
 
 	$hrs_diff = -$hrs_diff if $trans_offset_ts =~ m/1900-01-01/;
 	say $hrs_diff;
@@ -853,7 +856,7 @@ sub sender2dbh {
 		}
 		else {
 			warn
-"sanity check failed on DIS sender $sender, unable to match server\n";
+				"sanity check failed on DIS sender $sender, unable to match server\n";
 		}
 	}
 	else {
@@ -866,18 +869,18 @@ sub sender2dbh {
 		when (/3/) { return $dbh_dis3 }
 		when (/4/) { return $dbh_dis4 }
 		when (/5/) { return $dbh_dis5 }
-		default    { return };
+		default    {return};
 	}
 }
 
 # store/modify update history entry
 sub update_history {
 	my $hashref = shift;
-	my ( $update_id, $sched_id, $trans_offset, $late_q, $fd_q, $fn_q ) = (
-		$hashref->{update_id},    $hashref->{sched_id},
-		$hashref->{trans_offset}, $hashref->{late},
-		$hashref->{filedate},     $hashref->{filenum}
-	);
+	my ( $update_id, $sched_id, $trans_offset, $late_q, $fd_q, $fn_q )
+		= ( $hashref->{update_id},    $hashref->{sched_id},
+			$hashref->{trans_offset}, $hashref->{late},
+			$hashref->{filedate},     $hashref->{filenum}
+		);
 
 	# update if late and not yet recvd
 	# or skip if it was already recvd
@@ -895,7 +898,7 @@ sub update_history {
 		return;
 	}
 
-  # already an entry in history (late), update with newly found filedate filenum
+# already an entry in history (late), update with newly found filedate filenum
 	elsif ( defined $hist_id && ( $fd_q && $fn_q ) && ( !$fd || !$fn ) ) {
 		say "$update_id updating";
 		$dbh_sched->do( "
@@ -950,8 +953,9 @@ sub get_fdfn {
 # returns total offset (including day of week)
 sub datetime2offset {
 	my ($datetime) = @_;
-	my ($year, $month, $date, $hour, $minute, $second) = ($datetime =~ m/(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)/);
-	my $dow = Date_DayOfWeek($month, $date, $year);
+	my ( $year, $month, $date, $hour, $minute, $second )
+		= ( $datetime =~ m/(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)/ );
+	my $dow = Date_DayOfWeek( $month, $date, $year );
 	$dow = 0 if $dow == 7;
 	return $dow * 86400 + $hour * 3600 + $minute * 60 + $second;
 }
@@ -988,7 +992,7 @@ sub datetime2offset_old {
 		# no transactions for this feed_id today
 		else {
 			say
-			  "\t$datetime diff: $hrs_diff parsed: $hours_mins offset: $offset";
+				"\t$datetime diff: $hrs_diff parsed: $hours_mins offset: $offset";
 			return;
 		}
 	}
@@ -1024,30 +1028,27 @@ sub get_update_id {
 
 # current timestamp SQL DateTime format for GMT or machine time (local)
 sub timestamp {
-	my @now =
-	  $cfg->tz() =~ m/(?:GM[T]?|UT[C]?)/i
-	  ? gmtime(time)
-	  : localtime(time);
+	my @now
+		= $cfg->tz() =~ m/(?:GM[T]?|UT[C]?)/i
+		? gmtime(time)
+		: localtime(time);
 	return
-	  sprintf "%4d-%02d-%02d %02d:%02d:%02d",
-	  $now[5] + 1900,
-	  $now[4] + 1,
-	  @now[ 3, 2, 1, 0 ];
+		sprintf "%4d-%02d-%02d %02d:%02d:%02d",
+		$now[5] + 1900,
+		$now[4] + 1,
+		@now[ 3, 2, 1, 0 ];
 }
 
 # (re)loads configs from an optional relative path for sub-script callers
 sub load_conf {
 	my ($relative_path) = (@_);
 
-	$cfg = AppConfig->new(
-		{
-			CREATE => 1,
-			ERROR  => \&appconfig_error,
-			GLOBAL => {
-				ARGCOUNT => ARGCOUNT_ONE,
-				DEFAULT  => "<undef>",
-			},
-		}
+	$cfg = AppConfig->new( { CREATE => 1,
+							 ERROR  => \&appconfig_error,
+							 GLOBAL => { ARGCOUNT => ARGCOUNT_ONE,
+										 DEFAULT  => "<undef>",
+							 },
+						   }
 	);
 
 	# $cfg->define() any default values and set their options
@@ -1058,14 +1059,13 @@ sub load_conf {
 
 # parse config file for those vivacious variables and their rock steady, dependable values
 	$cfg->file( ( defined $relative_path ? "$relative_path/" : '' )
-		. $cfg->config_file() );
+				. $cfg->config_file() );
 
 	# second pass at CLI args, they take precedence over config file
 	$cfg->getopt( \@CLI );
-	(
-		$sched_db, $auh_db,  $prod1_db, $dis1_db,
-		$dis2_db,  $dis3_db, $dis4_db,  $dis5_db
-	) = map { get_handle_hash($_) } qw(sched_db auh_db prod1_db 1 2 3 4 5);
+	(  $sched_db, $auh_db,  $prod1_db, $dis1_db,
+	   $dis2_db,  $dis3_db, $dis4_db,  $dis5_db )
+		= map { get_handle_hash($_) } qw(sched_db auh_db prod1_db 1 2 3 4 5);
 
 	return $cfg;
 }
@@ -1075,16 +1075,16 @@ sub appconfig_error {
 
 	# hacky way to force always writing this log to top-level dir
 	# despite the calling script's location
-	my $top_log =
-	  ( __PACKAGE__ ne 'TQASched' ? $INC{'TQASched.pm'} =~ s!\w+\.pm!!gr : '' )
-	  . $cfg->log();
+	my $top_log
+		= ( __PACKAGE__ ne 'TQASched'
+			? $INC{'TQASched.pm'} =~ s!\w+\.pm!!gr
+			: '' )
+		. $cfg->log();
 
-	write_log(
-		{
-			logfile => $top_log,
-			type    => 'WARN',
-			msg     => join( "\t", @_ ),
-		}
+	write_log( { logfile => $top_log,
+				 type    => 'WARN',
+				 msg     => join( "\t", @_ ),
+			   }
 	);
 }
 
@@ -1093,89 +1093,77 @@ sub define_defaults {
 
 		# server configs
 		# server host port ex: localhost:9191
-		server_port => {
-			DEFAULT => 9191,
-			ARGS    => '=i',
-			ALIAS   => 'host_port|port|p',
+		server_port => { DEFAULT => 9191,
+						 ARGS    => '=i',
+						 ALIAS   => 'host_port|port|p',
 		},
 
-	 # server auto-start, good to set in conf file once everything is running OK
-		server_start => {
-			DEFAULT => 0,
-			ARGS    => '!',
-			ALIAS   => 'start_server|s',
+   # server auto-start, good to set in conf file once everything is running OK
+		server_start => { DEFAULT => 0,
+						  ARGS    => '!',
+						  ALIAS   => 'start_server|s',
 		},
 
 		# server logfile path
-		server_logfile => {
-			DEFAULT => 'server.log',
-			ALIAS   => 'server_log',
+		server_logfile => { DEFAULT => 'server.log',
+							ALIAS   => 'server_log',
 		},
 
 		# path to script which prints content
 		# this content is hosted through TCP/IP under HTTP
 		server_hosted_script => {
-			DEFAULT => 'test.pl',
-			ALIAS   => 'hosted_script|target_script|content_script',
+						DEFAULT => 'test.pl',
+						ALIAS => 'hosted_script|target_script|content_script',
 		},
 
-	 # daemon configs
-	 # daemon auto-start, good to set in conf file once everythign is running OK
-		daemon_start => {
-			DEFAULT => 0,
-			ARGS    => '!',
-			ALIAS   => 'start_daemon|d'
+   # daemon configs
+   # daemon auto-start, good to set in conf file once everythign is running OK
+		daemon_start => { DEFAULT => 0,
+						  ARGS    => '!',
+						  ALIAS   => 'start_daemon|d'
 		},
 
 		# periodicity of the daemon loop (seconds to sleep)
-		daemon_update_frequency => {
-			DEFAULT => 60,
-			ALIAS   => 'update_freq',
+		daemon_update_frequency => { DEFAULT => 60,
+									 ALIAS   => 'update_freq',
 		},
 
 		# daemon logfile path
-		daemon_logfile => {
-			DEFAULT => 'daemon.log',
-			ALIAS   => 'daemon_log',
+		daemon_logfile => { DEFAULT => 'daemon.log',
+							ALIAS   => 'daemon_log',
 		},
 
 		# scheduling configs
 		#
 		# path to master schedule spreadsheet
-		sched_file => {
-			DEFAULT => 'TQA_Update_Schedule.xls',
-			ALIAS   => 'sched',
+		sched_file => { DEFAULT => 'TQA_Update_Schedule.xls',
+						ALIAS   => 'sched',
 		},
 
 		# path to the operator legacy update checklist
-		sched_checklist_path => {
-			DEFAULT => '.',
-			ALIAS   => 'checklist',
+		sched_checklist_path => { DEFAULT => '.',
+								  ALIAS   => 'checklist',
 		},
 
 		# initialize scheduling data
 		# parse master schedule
 		# insert scheduling records and metadata into db
-		sched_init => {
-			DEFAULT => 0,
-			ARGS    => '!',
-			ALIAS   => 'init_sched|i',
+		sched_init => { DEFAULT => 0,
+						ARGS    => '!',
+						ALIAS   => 'init_sched|i',
 		},
 
-		# create scheduling the scheduling database framework from scratch, yum
-		sched_create_db => {
-			DEFAULT => 0,
-			ARGS    => '!',
-			ALIAS   => 'create_db|c',
+	   # create scheduling the scheduling database framework from scratch, yum
+		sched_create_db => { DEFAULT => 0,
+							 ARGS    => '!',
+							 ALIAS   => 'create_db|c',
 		},
 
 		# link update ids to feed ids in DIS
-		sched_import_dis => {
-			DEFAULT => 0,
-			ARGS    => '!',
-			ALIAS   => 'import_dis|m'
+		sched_import_dis => { DEFAULT => 0,
+							  ARGS    => '!',
+							  ALIAS   => 'import_dis|m'
 		},
-
 		# report (content gen script) configs
 		# report script's logfile
 		report_logfile => {
@@ -1186,92 +1174,79 @@ sub define_defaults {
 
 # path to css stylesheet file for report gen, hosted statically and only by request!
 # all statically hosted files are defined relative to the TQASched/Resources/ directory, where they enjoy living (for now, bwahahaha)
-		report_stylesheet => {
-			DEFAULT => 'styles.css',
-			ALIAS   => 'styles|stylesheet',
+		report_stylesheet => { DEFAULT => 'styles.css',
+							   ALIAS   => 'styles|stylesheet',
 		},
 
 # path to jquery codebase (an image of it taken sometime in... Jan 2013) - not in use yet
-		report_jquery => {
-			DEFAULT => 'jquery.js',
-			ALIAS   => 'jquery',
+		report_jquery => { DEFAULT => 'jquery.js',
+						   ALIAS   => 'jquery',
 		},
 
-	  # path to user created javascript libraries and functions - not in use yet
-		report_user_js => {
-			DEFAULT => 'js.js',
-			ALIAS   => 'user_js',
+	# path to user created javascript libraries and functions - not in use yet
+		report_user_js => { DEFAULT => 'js.js',
+							ALIAS   => 'user_js',
 		},
 
 		# refresh rate for report page
-		report_refresh => {
-			DEFAULT => '300',
-			ALIAS   => 'refresh',
+		report_refresh => { DEFAULT => '300',
+							ALIAS   => 'refresh',
 		},
 
 		# report date CGI variable
-		report_date => {
-			DEFAULT => '',
-			ARGS    => '=i',
-			ALIAS   => 'date',
+		report_date => { DEFAULT => '',
+						 ARGS    => '=i',
+						 ALIAS   => 'date',
 		},
 
-  # refresh rate for the report page - can't be less than 10, and 0 means never.
-  # (in seconds)
+# refresh rate for the report page - can't be less than 10, and 0 means never.
+# (in seconds)
 
 		# default (misc) configs
 		#
 		# toggle or set verbosity level to turn off annoying, snarky messages
-		default_verbosity => {
-			DEFAULT => 1,
-			ARGS    => ':i',
-			ALIAS   => 'verbosity|verbose|v',
+		default_verbosity => { DEFAULT => 1,
+							   ARGS    => ':i',
+							   ALIAS   => 'verbosity|verbose|v',
 		},
 
 		# toggle logging
-		default_enable_logging => {
-			DEFAULT => 1,
-			ARGS    => '!',
-			ALIAS   => 'logging|logging_enabled|l',
+		default_enable_logging => { DEFAULT => 1,
+									ARGS    => '!',
+									ALIAS   => 'logging|logging_enabled|l',
 		},
 
 		# timezone to write log timestamps in
-		default_log_tz => {
-			DEFAULT => 'local',
-			ALIAS   => 'tz|timezone',
+		default_log_tz => { DEFAULT => 'local',
+							ALIAS   => 'tz|timezone',
 		},
 
 		# helpme / manpage from pod
-		default_help => {
-			DEFAULT => 0,
-			ARGS    => '!',
-			ALIAS   => 'help|version|usage|h'
+		default_help => { DEFAULT => 0,
+						  ARGS    => '!',
+						  ALIAS   => 'help|version|usage|h'
 		},
+
 # path to config file
 # (optional, I suppose if you wanted to list all database connection info in CLI args)
-		default_config_file => {
-			DEFAULT => "TQASched.conf",
-			ARGS    => '=s',
-			ALIAS   => "cfg_file|conf_file|config_file|f",
+		default_config_file => { DEFAULT => "TQASched.conf",
+								 ARGS    => '=s',
+								 ALIAS => "cfg_file|conf_file|config_file|f",
 		},
 
 # toggle dryrun mode = non-destructive test of module load and all db connections
-		default_dryrun => {
-			DEFAULT => 0,
-			ARGS    => '!',
-			ALIAS   => 'dryrun|y',
+		default_dryrun => { DEFAULT => 0,
+							ARGS    => '!',
+							ALIAS   => 'dryrun|y',
 		},
-		default_logfile => {
-			DEFAULT => 'TQASched.log',
-			ALIAS   => 'log',
+		default_logfile => { DEFAULT => 'TQASched.log',
+							 ALIAS   => 'log',
 		},
-		default_enable_warn => {
-			DEFAULT => 1,
-			ALIAS   => 'enable_warn',
+		default_enable_warn => { DEFAULT => 1,
+								 ALIAS   => 'enable_warn',
 		},
-		default_late_threshold => {
-			DEFAULT => 3600,
-			ALIAS => 'late_threshold',
+		default_late_threshold => { DEFAULT => 3600,
+									ALIAS   => 'late_threshold',
 		},
 	);
 
@@ -1281,11 +1256,10 @@ sub define_defaults {
 # build and return hashref of db connection info from configs
 sub get_handle_hash {
 	my ($db_name) = (@_);
-	return {
-		name   => $cfg->get("${db_name}_name"),
-		user   => $cfg->get("${db_name}_user"),
-		server => $cfg->get("${db_name}_server"),
-		pwd    => $cfg->get("${db_name}_pwd"),
+	return { name   => $cfg->get("${db_name}_name"),
+			 user   => $cfg->get("${db_name}_user"),
+			 server => $cfg->get("${db_name}_server"),
+			 pwd    => $cfg->get("${db_name}_pwd"),
 	};
 }
 
@@ -1293,15 +1267,14 @@ sub get_handle_hash {
 sub offset_weekdays {
 	my ( $sched_offset, $days ) = @_;
 
-	# hardcoded hash of day to weekday integer (as from localtime - sunday is 0)
-	my %wd_lookup = (
-		Su => 0,
-		M  => 1,
-		T  => 2,
-		W  => 3,
-		Th => 4,
-		F  => 5,
-		Sa => 6,
+  # hardcoded hash of day to weekday integer (as from localtime - sunday is 0)
+	my %wd_lookup = ( Su => 0,
+					  M  => 1,
+					  T  => 2,
+					  W  => 3,
+					  Th => 4,
+					  F  => 5,
+					  Sa => 6,
 	);
 
 	my $day_increment = 86400;
@@ -1310,17 +1283,18 @@ sub offset_weekdays {
 	my @offsets = ();
 	if ( $days =~ m/(\w+)-(\w+)/ ) {
 		my ( $first_date, $second_date ) = ( $1, $2 );
-		my ( $first_int, $second_int ) =
-		  ( $wd_lookup{$first_date}, $wd_lookup{$second_date} );
+		my ( $first_int, $second_int )
+			= ( $wd_lookup{$first_date}, $wd_lookup{$second_date} );
 
 		# this should be the case most of the time
 
 		if ( $first_int < $second_int ) {
 
-		   # iterate over each day and push to return array - easy case, no wrap
+		 # iterate over each day and push to return array - easy case, no wrap
 			while ( $first_int <= $second_int ) {
 				push @offsets,
-				  [ $first_int * $day_increment + $sched_offset, $first_int ];
+					[ $first_int * $day_increment + $sched_offset, $first_int
+					];
 				$first_int++;
 			}
 
@@ -1328,7 +1302,8 @@ sub offset_weekdays {
 		elsif ( $first_int > $second_int ) {
 			while (1) {
 				push @offsets,
-				  [ $first_int * $day_increment + $sched_offset, $first_int ];
+					[ $first_int * $day_increment + $sched_offset, $first_int
+					];
 				last if $first_int == $second_int;
 
 				# wrap back around to sunday after friday
@@ -1340,7 +1315,7 @@ sub offset_weekdays {
 		}
 		else {
 			warn
-"failed sanity check: $first_date:$first_int $second_date:$second_int\n";
+				"failed sanity check: $first_date:$first_int $second_date:$second_int\n";
 			return;
 		}
 
@@ -1359,29 +1334,30 @@ sub offset_weekdays {
 		my ( $first_date, $second_date, $last_date ) = ( $1, $2, $3 );
 
 		# lookup the corresponding ints for these days
-		my ( $first_int, $second_int, $last_int ) = (
-			$wd_lookup{$first_date}, $wd_lookup{$second_date},
-			$wd_lookup{$last_date}
-		);
+		my ( $first_int, $second_int, $last_int )
+			= ( $wd_lookup{$first_date}, $wd_lookup{$second_date},
+				$wd_lookup{$last_date} );
 
 		# push last day as a single, it's easy
 		push @offsets,
-		  [ $last_int * $day_increment + $sched_offset, $last_int ];
+			[ $last_int * $day_increment + $sched_offset, $last_int ];
 
 		# handle other date range the same as the last one
 		if ( $first_int < $second_int ) {
 
-		   # iterate over each day and push to return array - easy case, no wrap
+		 # iterate over each day and push to return array - easy case, no wrap
 			while ( $first_int <= $second_int ) {
 				push @offsets,
-				  [ $first_int * $day_increment + $sched_offset, $first_int ];
+					[ $first_int * $day_increment + $sched_offset, $first_int
+					];
 				$first_int++;
 			}
 		}
 		elsif ( $first_int > $second_int ) {
 			while (1) {
 				push @offsets,
-				  [ $first_int * $day_increment + $sched_offset, $first_int ];
+					[ $first_int * $day_increment + $sched_offset, $first_int
+					];
 				last if $first_int == $second_int;
 
 				# wrap back around to sunday after friday
@@ -1420,13 +1396,14 @@ sub init_handle {
 	my $db = shift;
 
 	# connecting to master since database may need to be created
-	return DBI->connect(
+	return
+		DBI->connect(
 		sprintf(
 			"dbi:ODBC:Database=%s;Driver={SQL Server};Server=%s;UID=%s;PWD=%s",
-			$db->{name} || 'master',
-			$db->{server}, $db->{user}, $db->{pwd}
+			$db->{name} || 'master', $db->{server},
+			$db->{user}, $db->{pwd}
 		)
-	) or die "failed to initialize database handle\n", $DBI::errstr;
+		) or die "failed to initialize database handle\n", $DBI::errstr;
 }
 
 # create database if not already present
@@ -1434,12 +1411,12 @@ sub create_db {
 
 	# if already exists, return
 	say 'database already exists, skipping create flag' and return 1
-	  if check_db('TQASched');
+		if check_db('TQASched');
 	say 'creating TQASched database...';
 
 	# create the database
 	$dbh_sched->do("create database [TQASched]")
-	  or die "could not create TQASched database\n";
+		or die "could not create TQASched database\n";
 
 	# create the tables
 
@@ -1462,7 +1439,8 @@ sub create_db {
 		sched_epoch int not null
 		
 	)"
-	) or die "could not create Update_Schedule table\n", $dbh_sched->errstr;
+		)
+		or die "could not create Update_Schedule table\n", $dbh_sched->errstr;
 
 	# create history tracking table
 	$dbh_sched->do(
@@ -1476,7 +1454,8 @@ sub create_db {
 		timestamp DateTime,
 		late char(1)
 	)"
-	) or die "could not create Update_History table\n", $dbh_sched->errstr;
+		)
+		or die "could not create Update_History table\n", $dbh_sched->errstr;
 
 	# create linking table from DIS feed_ids to update_ids
 	$dbh_sched->do( "
@@ -1486,8 +1465,8 @@ sub create_db {
 		update_id int not null
 		)
 	" )
-	  or warn
-	  "\tcould not create DIS linking table - Update_DIS, may already exist\n";
+		or warn
+		"\tcould not create DIS linking table - Update_DIS, may already exist\n";
 
 	say 'done creating db';
 	return 1;
@@ -1502,70 +1481,75 @@ sub check_db {
 # drop the database
 sub drop_db {
 	return $dbh_sched->do('drop database TQASched')
-	  or die "could not drop TQASched database\n", $dbh_sched->errstr;
+		or die "could not drop TQASched database\n", $dbh_sched->errstr;
 }
 
 # clear all update records in database
 sub clear_updates {
 	return $dbh_sched->do('delete from [TQASched].dbo.[Updates]')
-	  or die "error in clearing Updates table\n", $dbh_sched->errstr;
+		or die "error in clearing Updates table\n", $dbh_sched->errstr;
 }
 
 # clear all scheduling records in database
 sub clear_schedule {
 	return $dbh_sched->do('delete from [TQASched].dbo.[Update_Schedule]')
-	  or die "error in clearing Schedule table\n", $dbh_sched->errstr;
+		or die "error in clearing Schedule table\n", $dbh_sched->errstr;
 }
 
 # get latest schedule checklist
 sub find_sched {
+	# old method, finds the youngest file and matches the date range (good for transition)
+	#return find_youngest_sched();
+	
 	say 'accessing checklist directory: ' . $cfg->checklist;
 	opendir( my $dir_fh, $cfg->checklist )
-	  or warn "could open/find checklist dir" . $cfg->checklist . "$!\n";
+		or warn "could open/find checklist dir" . $cfg->checklist . "$!\n";
 	my @files = readdir($dir_fh);
 	closedir $dir_fh;
 	say 'success. searching for latest checklist';
 
-	# TODO: find latest, create new (copy & rename blank checklist)
-	my $low           = 9**9**9;
-	my $new_list_path = '';
-	say scalar @files . ' files to look at';
-	my $checklist_path = $cfg->checklist . '/';
-	for my $file (@files) {
-		next unless -f "$checklist_path$file";
-		my $score = -M "$checklist_path$file";
-		if (   $score < $low
-			&& $file =~ m/DailyChecklist/i
-			&& $file !~ m/Shortcut/i )
-		{
-			$low           = $score;
-			$new_list_path = "$checklist_path$file";
-		}
+	# get current datetime for reference
+	my $now_date = ParseDate('epoch ' . time);
+	$now_date = Date_ConvTZ($now_date, undef, 'GMT');
+	# find the beginning and end dates for the schedule filename's range
+	my $last_mon = Date_GetPrev($now_date, 'Mon', 1);
+	my $next_sun = DateCalc($last_mon, 'in 6 days');
+	my ($start_string, $end_string) = map {UnixDate($_, '%e %b')} ($last_mon, $next_sun);
+	# if same month, remove first month
+	if (($start_string =~ m/\s*(\D+)/) eq ($end_string =~ m/\s*(\D+)/) ) {
+		$start_string =~ s/\D*//g;
 	}
-	say "best candidate: $new_list_path w/ $low";
-	my ( $startdate, $enddate );
-	if ($new_list_path) {
+	map {s/\s*(\d+)/&ordinate($1)/e} ($start_string, $end_string);
+	my $checklist_file = $cfg->checklist . "/DailyChecklist_$start_string-$end_string.xls";
+	say "checklist should be $checklist_file";
+	unless (-f $checklist_file) {
+		write_log({
+			logfile => $cfg->log,
+			type => 'WARN',
+			msg => "could not find checklist file $checklist_file, creating"
+		});
+		create_checklist($checklist_file);
+	}
+	return $checklist_file;
+}
 
-		# capture dates and months from name
-		if ( $new_list_path =~ m/(\d+)(\D*)-(\d+)(\D*)\./ ) {
-			( $startdate, $enddate ) = parse_months( $1, $2, $3, $4 );
-		}
-		else {
-			warn
-"could not find a valid checklist file (almost, though) - $new_list_path\n";
-		}
-
+# add ordinal component to numeric values (-st,-nd,-rd,-th)
+sub ordinate {
+	my ($number) = (@_);
+	my $ord;
+	given ($number) {
+		while (/1[123]$/) {$ord = 'th'}
+		while (/1$/) {$ord = 'st'}
+		while (/2$/) {$ord = 'nd'}
+		while (/3$/) {$ord = 'rd'}
+		default {$ord = 'th'}
 	}
-	else {
-		write_log(
-			{
-				logfile => $cfg->log,
-				type    => 'ERROR',
-				msg     => "could not find the ops checklist!"
-			}
-		);
-	}
-	return ( $new_list_path, $startdate, $enddate );
+	return $number.$ord;
+}
+sub create_checklist {
+	my ($checklist_path) = @_;
+	my $mastersheet = $cfg->checklist . '/Master_Sheets/DailyCheckList_MasterSheet.xls';
+	copy($mastersheet, $checklist_path);
 }
 
 # convert text month to number indexed starting at 0 in Jan
@@ -1594,7 +1578,7 @@ sub parse_months {
 		}
 		else {
 			warn
-"could not parse a date out of $startdate / $startmonth / $endmonth from checklist filename\n";
+				"could not parse a date out of $startdate / $startmonth / $endmonth from checklist filename\n";
 			return;
 		}
 	}
@@ -1605,9 +1589,57 @@ sub parse_months {
 	}
 	else {
 		warn
-		  "unable to parse an enddate $enddate $endmonth for checklist file\n";
+			"unable to parse an enddate $enddate $endmonth for checklist file\n";
 	}
 	return ( $firstdate, $seconddate );
+}
+
+sub find_youngest_sched {
+	say 'accessing checklist directory: ' . $cfg->checklist;
+	opendir( my $dir_fh, $cfg->checklist )
+		or warn "could open/find checklist dir" . $cfg->checklist . "$!\n";
+	my @files = readdir($dir_fh);
+	closedir $dir_fh;
+	say 'success. searching for latest checklist';
+
+	# TODO: find latest, create new (copy & rename blank checklist)
+	my $low           = 9**9**9;
+	my $new_list_path = '';
+	say scalar @files . ' files to look at';
+	my $checklist_path = $cfg->checklist . '/';
+	for my $file (@files) {
+		next unless -f "$checklist_path$file";
+		my $score = -M "$checklist_path$file";
+		if (    $score < $low
+			 && $file =~ m/DailyChecklist/i
+			 && $file !~ m/Shortcut/i )
+		{
+			$low           = $score;
+			$new_list_path = "$checklist_path$file";
+		}
+	}
+	say "best candidate: $new_list_path w/ $low";
+	my ( $startdate, $enddate );
+	if ($new_list_path) {
+
+		# capture dates and months from name
+		if ( $new_list_path =~ m/(\d+)(\D*)-(\d+)(\D*)\./ ) {
+			( $startdate, $enddate ) = parse_months( $1, $2, $3, $4 );
+		}
+		else {
+			warn
+				"could not find a valid checklist file (almost, though) - $new_list_path\n";
+		}
+
+	}
+	else {
+		write_log( { logfile => $cfg->log,
+					 type    => 'ERROR',
+					 msg     => "could not find the ops checklist!"
+				   }
+		);
+	}
+	return ( $new_list_path, $startdate, $enddate );
 }
 
 # poll auh metadata for DIS feed statuses
@@ -1634,8 +1666,8 @@ sub refresh_dis {
 	for my $update_aref ( @{$updates_aref} ) {
 
 		# extract update info
-		my ( $feed_id, $name, $offset, $sched_id, $update_id ) =
-		  @{$update_aref};
+		my ( $feed_id, $name, $offset, $sched_id, $update_id )
+			= @{$update_aref};
 
 		# get build number (optional) from feed name
 		my ( $stripped_name, $build_num ) = $name =~ m/(.*)#(\d+)/;
@@ -1651,8 +1683,8 @@ sub refresh_dis {
 			order by ProcessTime desc
 		";
 
-		my ( $status, $exec_end, $fd, $fn, $sender, $trans_num, $build_time ) =
-		  $dbh_prod1->selectrow_array($transactions);
+		my ( $status, $exec_end, $fd, $fn, $sender, $trans_num, $build_time )
+			= $dbh_prod1->selectrow_array($transactions);
 
 		# if this is an enumerated feed
 		# check the last execution time of that build
@@ -1675,7 +1707,8 @@ sub refresh_dis {
 
 			#say $backdate_query;
 
-			$backdate_updates = $dbh_sched->selectall_arrayref($backdate_query);
+			$backdate_updates
+				= $dbh_sched->selectall_arrayref($backdate_query);
 
 			my $dbh_dis = sender2dbh($sender);
 
@@ -1691,8 +1724,9 @@ sub refresh_dis {
 			";
 
 			my ($trans_num) = $dbh_dis->selectrow_array($dis_trans)
-			  or warn "\tno transaction # found for enum feed $name, skipping\n"
-			  and next;
+				or warn
+				"\tno transaction # found for enum feed $name, skipping\n"
+				and next;
 
 			# select this transaction from TQALic
 			# to get AUH process time, along with filenum and filedate
@@ -1705,11 +1739,11 @@ sub refresh_dis {
 				and DateDiff(dd, [BuildTime], GETUTCDATE()) < 1
 				order by ProcessTime desc
 			";
-			( $status, $exec_end, $fd, $fn, $sender, $trans_num, $build_time ) =
-			  $dbh_prod1->selectrow_array($transactions)
-			  or warn
-			  "\tcould not find metadata for $name from trans #: $trans_num\n"
-			  and next;
+			( $status, $exec_end, $fd, $fn, $sender, $trans_num, $build_time )
+				= $dbh_prod1->selectrow_array($transactions)
+				or warn
+				"\tcould not find metadata for $name from trans #: $trans_num\n"
+				and next;
 
 		}
 
@@ -1733,42 +1767,37 @@ sub refresh_dis {
 			# compare transaction execution time to schedule offset
 			my $trans_offset = datetime2offset($exec_end);
 			my $cmp_result = comp_offsets( $trans_offset, $offset );
-			
 
 			# if it's within an hour of the scheduled time, mark as on time
 			# could also be early
 			if ( $cmp_result == 0 ) {
 				say "ontime $name $exec_end offset: $offset";
-				update_history(
-					{
-						update_id    => $update_id,
-						sched_id     => $sched_id,
-						trans_offset => $trans_offset,
-						late         => 'N',
-						filedate     => $fd,
-						filenum      => $fn
-					}
+				update_history( { update_id    => $update_id,
+								  sched_id     => $sched_id,
+								  trans_offset => $trans_offset,
+								  late         => 'N',
+								  filedate     => $fd,
+								  filenum      => $fn
+								}
 				);
 				backdate( $backdate_updates, $trans_offset, 'N', $fd, $fn,
-					$build_num, $sched_id );
+						  $build_num, $sched_id );
 			}
 
 			# otherwise it either has not come in or it is late
 			# late
 			elsif ( $cmp_result == 1 ) {
 				say "late $name $exec_end to offset: $offset";
-				update_history(
-					{
-						update_id    => $update_id,
-						sched_id     => $sched_id,
-						trans_offset => $trans_offset,
-						late         => 'Y',
-						filedate     => $fd,
-						filenum      => $fn
-					}
+				update_history( { update_id    => $update_id,
+								  sched_id     => $sched_id,
+								  trans_offset => $trans_offset,
+								  late         => 'Y',
+								  filedate     => $fd,
+								  filenum      => $fn
+								}
 				);
 				backdate( $backdate_updates, $trans_offset, 'Y', $fd, $fn,
-					$build_num, $sched_id );
+						  $build_num, $sched_id );
 			}
 
 			# possibly just not recvd yet
@@ -1777,7 +1806,7 @@ sub refresh_dis {
 			}
 			else {
 				warn
-				  "\tFAILED transaction offset sanity check: $name $$offset\n";
+					"\tFAILED transaction offset sanity check: $name $$offset\n";
 				next;
 			}
 		}
@@ -1793,14 +1822,13 @@ sub refresh_dis {
 sub refresh_legacy {
 
 	# attempt to find & download the latest spreadsheet from OpsDocs server
-	# TODO: verify that the date range is sane, otherwise create a new sheet
-	my ( $sched_xls, $startdate, $enddate ) = find_sched();
+	my $sched_xls = find_sched();
 
 	# create parser and parse xls
 	my $xlsparser = Spreadsheet::ParseExcel->new();
 	my $workbook  = $xlsparser->parse($sched_xls)
-	  or die "unable to parse spreadsheet: $sched_xls\n",
-	  $xlsparser->error();
+		or die "unable to parse spreadsheet: $sched_xls\n",
+		$xlsparser->error();
 	say 'done';
 
 	# iterate over each weekday (worksheets)
@@ -1811,7 +1839,7 @@ sub refresh_legacy {
 
 		# skip if this is an unrecognized worksheet
 		say "\tunable to parse weekday, skipping" and next
-		  if $weekday_code == -1;
+			if $weekday_code == -1;
 
 		# find the row and column bounds for iteration
 		my ( $col_min, $col_max ) = $worksheet->col_range();
@@ -1820,18 +1848,18 @@ sub refresh_legacy {
 		my $sched_block = '';
 
 		# iterate over each row and store scheduling data
-		for ( my $row = $row_min ; $row <= $row_max ; $row++ ) {
+		for ( my $row = $row_min; $row <= $row_max; $row++ ) {
 			next if $row <= 1;
 
 			# per-update hash of column values
 			my $row_data = {};
-			for ( my $col = $col_min ; $col <= $col_max ; $col++ ) {
+			for ( my $col = $col_min; $col <= $col_max; $col++ ) {
 				my $cell = $worksheet->get_cell( $row, $col );
 				unless ( extract_row_daemon( $col, $cell, $row_data ) ) {
 				}
 				else {
-					if (   $row_data->{time_block}
-						&& $sched_block ne $row_data->{time_block} )
+					if (    $row_data->{time_block}
+						 && $sched_block ne $row_data->{time_block} )
 					{
 						$sched_block = $row_data->{time_block};
 					}
@@ -1843,7 +1871,7 @@ sub refresh_legacy {
 
 			# skip unless update name filled in
 			next
-			  unless exists $row_data->{update};
+				unless exists $row_data->{update};
 
 			my $name        = $row_data->{update};
 			my $update_id   = get_update_id($name);
@@ -1855,8 +1883,8 @@ sub refresh_legacy {
 			";
 
 			#say $sched_query and die;
-			my ( $sched_offset, $sched_id ) =
-			  $dbh_sched->selectrow_array($sched_query);
+			my ( $sched_offset, $sched_id )
+				= $dbh_sched->selectrow_array($sched_query);
 
 			unless ($sched_offset) {
 				warn "no schedule entry for $name : $update_id : $sched_id\n";
@@ -1868,22 +1896,23 @@ sub refresh_legacy {
 			my $ontime;
 
 			# compare transaction execution time to schedule offset
-													# GMT now		# GMT sched
+			# GMT now		# GMT sched
 			my $cmp_result = comp_offsets( $trans_offset, $sched_offset );
 
 			# if it's within an hour of the scheduled time, mark as on time
 			# could also be early
-			if ( $cmp_result == 0 && $row_data->{filedate} && $row_data->{filenum}) {
+			if (    $cmp_result == 0
+				 && $row_data->{filedate}
+				 && $row_data->{filenum} )
+			{
 				say "ontime $name $trans_offset offset: $sched_offset";
-				update_history(
-					{
-						update_id    => $update_id,
-						sched_id     => $sched_id,
-						trans_offset => $trans_offset,
-						late         => 'N',
-						filedate     => $row_data->{filedate},
-						filenum      => $row_data->{filenum}
-					}
+				update_history( { update_id    => $update_id,
+								  sched_id     => $sched_id,
+								  trans_offset => $trans_offset,
+								  late         => 'N',
+								  filedate     => $row_data->{filedate},
+								  filenum      => $row_data->{filenum}
+								}
 				);
 			}
 
@@ -1891,15 +1920,13 @@ sub refresh_legacy {
 			# late
 			elsif ( $cmp_result == 1 ) {
 				say "late $name $trans_offset to offset: $sched_offset";
-				update_history(
-					{
-						update_id    => $update_id,
-						sched_id     => $sched_id,
-						trans_offset => $trans_offset,
-						late         => 'Y',
-						filedate     => $row_data->{filedate},
-						filenum      => $row_data->{filenum}
-					}
+				update_history( { update_id    => $update_id,
+								  sched_id     => $sched_id,
+								  trans_offset => $trans_offset,
+								  late         => 'Y',
+								  filedate     => $row_data->{filedate},
+								  filenum      => $row_data->{filenum}
+								}
 				);
 			}
 
@@ -1907,20 +1934,18 @@ sub refresh_legacy {
 			elsif ( $cmp_result == -1 ) {
 				say "waiting on $name, last trans: $trans_offset";
 				say "late $name $trans_offset to offset: $sched_offset";
-				update_history(
-					{
-						update_id    => $update_id,
-						sched_id     => $sched_id,
-						trans_offset => -1,
-						late         => 'N',
-						filedate     => '',
-						filenum      => ''
-					}
+				update_history( { update_id    => $update_id,
+								  sched_id     => $sched_id,
+								  trans_offset => -1,
+								  late         => 'N',
+								  filedate     => '',
+								  filenum      => ''
+								}
 				);
 			}
 			else {
 				warn
-"\tFAILED transaction offset sanity check: $name $sched_offset\n";
+					"\tFAILED transaction offset sanity check: $name $sched_offset\n";
 				next;
 			}
 		}
@@ -1936,7 +1961,7 @@ sub write_log {
 
 	# bounce for badly formed argument, cmon give us a darn hash reference
 	( warn "Passed non-href value to write_log\n" and return )
-	  unless ( ref($entry_href) eq 'HASH' );
+		unless ( ref($entry_href) eq 'HASH' );
 
 	# let's just make sure we're all lower case keys here and save a headache
 	my %entry = map { ( lc $_ => ${$entry_href}{$_} ) } keys %{$entry_href};
@@ -1964,9 +1989,9 @@ sub write_log {
 	}
 
 	open my $log_fh, '>>', $entry{logfile}
-	  or warn
-	  "unable to open/create log $entry{logfile}: [$entry{type}]\t$entry{msg}\n"
-	  and return;
+		or warn
+		"unable to open/create log $entry{logfile}: [$entry{type}]\t$entry{msg}\n"
+		and return;
 	printf $log_fh "[%s]\t[%s]\t%s\n", timestamp(), $entry{type}, $entry{msg};
 	close $log_fh;
 }
@@ -1977,18 +2002,16 @@ sub redirect_stderr {
 	my ($error_log) = (@_);
 	open my $err_fh, '>>', $error_log;
 	STDERR->fdopen( $err_fh, 'a' )
-	  or warn "failed to pipe errors to logfile:$!\n";
+		or warn "failed to pipe errors to logfile:$!\n";
 
 	#return $err_fh;
 }
 
 sub usage {
 	my ($exit_val) = @_;
-	pod2usage(
-		{
-			-verbose => $cfg->verbosity,
-			-exit    => $exit_val || 0
-		}
+	pod2usage( { -verbose => $cfg->verbosity,
+				 -exit    => $exit_val || 0
+			   }
 	);
 }
 

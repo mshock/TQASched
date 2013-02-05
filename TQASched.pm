@@ -7,7 +7,7 @@ use feature qw(say switch);
 use Spreadsheet::ParseExcel;
 use Spreadsheet::ParseExcel::Utility qw(ExcelFmt);
 use DBI;
-use Date::Manip qw(ParseDate DateCalc Delta_Format UnixDate Date_SetTime);
+use Date::Manip qw(ParseDate DateCalc Delta_Format UnixDate Date_SetTime Date_DayOfWeek);
 use Pod::Usage qw(pod2usage);
 use AppConfig qw(:argcount);
 use Exporter 'import';
@@ -646,8 +646,8 @@ sub get_sched_id {
 sub now_wd {
 	my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst ) =
 	  gmtime(time);
-	my @weekdays = qw(N M T W R F S);
-	return $weekdays[$wday];
+	#my @weekdays = qw(N M T W R F S);
+	return $wday;
 }
 
 # update all older builds issued in the same update
@@ -710,9 +710,9 @@ sub offset_before {
 	return 0;
 }
 
-# compares two GMT offsets (current poll time vs scheduled time)
-# TODO: link to legacy updates in database for more exact/reliable timing
-sub comp_offsets_legacy {
+# compares two GMT offsets (perceived trans time vs scheduled time)
+# TODO: intelligently handle week boundary
+sub comp_offsets {
 	my ($trans_offset, $sched_offset) = @_;
 	# get seconds difference
 	my $offset_diff = $trans_offset - $sched_offset;
@@ -721,7 +721,7 @@ sub comp_offsets_legacy {
 		# return late
 		return 1;
 	}
-	# early, but not more than a day ago
+	# early but not more than a day ago or within acceptable late threshold
 	elsif ($offset_diff < $cfg->late_threshold  && $offset_diff > -86400 ) {
 		return 0;
 	}
@@ -733,7 +733,7 @@ sub comp_offsets_legacy {
 
 # compares offsets for timezone and day diff
 # to GMT
-sub comp_offsets_dis {
+sub comp_offsets_old {
 
 	# (		GMT		 ,		GMT 	)
 	my ( $trans_offset_ts, $sched_offset ) = @_;
@@ -946,12 +946,18 @@ sub get_fdfn {
 	return ( $fd, $fn );
 }
 
-# convert SQL datetime to offset if it is in the current day
-# otherwise return false
-# TODO: fix this to handle GM and CST date properly, prev day and next day
+# convert SQL datetime to offset
+# returns total offset (including day of week)
 sub datetime2offset {
 	my ($datetime) = @_;
+	my ($year, $month, $date, $hour, $minute, $second) = ($datetime =~ m/(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)/);
+	my $dow = Date_DayOfWeek($month, $date, $year);
+	$dow = 0 if $dow == 7;
+	return $dow * 86400 + $hour * 3600 + $minute * 60 + $second;
+}
 
+sub datetime2offset_old {
+	my ($datetime) = @_;
 	$datetime =~ m/ (\d+):(\d+):/;
 	return time2offset("$1:$2");
 
@@ -1863,7 +1869,7 @@ sub refresh_legacy {
 
 			# compare transaction execution time to schedule offset
 													# GMT now		# GMT sched
-			my $cmp_result = comp_offsets_legacy( $trans_offset, $sched_offset );
+			my $cmp_result = comp_offsets( $trans_offset, $sched_offset );
 
 			# if it's within an hour of the scheduled time, mark as on time
 			# could also be early

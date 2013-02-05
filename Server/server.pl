@@ -28,6 +28,12 @@ my $server = WebServer->new( $cfg->port );
 
 say 'hold your hats, the server is starting up its jets';
 
+write_log({
+	logfile => $cfg->server_log,
+	type => 'INFO',
+	msg => 'server instance created, intiating hosting process',
+});
+
 # execute server process
 $server->run();
 
@@ -67,10 +73,4 @@ sub handle_request {
 	);
 
 	print `perl ${\$cfg->target_script} $params_string`;
-}
-
-# INV: experimental END block
-# not sure if this will have script's scope
-END {
-	write_log({logfile => $cfg->server_log, msg => 'server has stopped', type => 'INFO'});
 }

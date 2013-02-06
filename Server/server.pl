@@ -8,7 +8,7 @@ use strict;
 use feature 'say';
 
 use lib '..';
-use TQASched;
+use TQASched qw(:min);
 
 my $cfg = load_conf('..');
 

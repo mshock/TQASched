@@ -1,3 +1,8 @@
-
-.project
+# IMPORTANT - ignore config file for security reasons
 TQASched.conf
+# ignore any logs
+*.log
+# ignore Eclipse project metadata
+.project
+# ignore old code and snippets dir
+Old/

@@ -26,16 +26,31 @@ my ( $headerdate, $headertime, $dbdate ) = calc_datetime();
 # parsed from CLI arg key/value pairs
 my $post_date = $cfg->date;
 
+######################################################
+#	NOTICE POSTED:
+#		anything to STDOUT before this point will
+#		botch HTTP communication protocol
+######################################################
+
+
 print "HTTP/1.0 200 OK\r\n";
 print "Content-type: text/html\n\n";
 
+######################################################
+#	STDOUT = html content
+#	anything else will be printed to the page
+#	(useful for debug)
+######################################################
+
 # if date passed through POST, update header variables
 unless ( $post_date =~ m/(\d{4})(\d{2})(\d{2})/ ) {
-	write_log( { logfile => $cfg->report_log,
-				 type    => 'WARN',
-				 msg     => "bad POST value: $post_date\n"
-			   }
-	);
+	if (defined $post_date) {
+		write_log( { logfile => $cfg->report_log,
+					 type    => 'INFO',
+					 msg     => "bad POST value: $post_date\n"
+				   }
+		);
+	}
 }
 else {
 	$headerdate = "$2/$3/$1";
@@ -63,7 +78,7 @@ print_footer();
 
 # write execution time to log when done generating content (resolution: seconds, unfortunately)
 write_log(
-	 { logfile => $cfg->report_log, type => 'INFO', msg => exec_time() } );
+		{ logfile => $cfg->report_log, type => 'INFO', msg => exec_time() } );
 
 ######################################################
 #	Subs
@@ -159,11 +174,12 @@ sub print_table {
 	my $wd = get_wd();
 
 	my $select_schedule = "
-	  select us.sched_id, us.update_id, us.sched_epoch, u.name
+	  select us.sched_id, us.update_id, us.sched_epoch, u.name, u.is_legacy
 	  from [TQASched].[dbo].[Update_Schedule] us,
 	  [TQASched].[dbo].[Updates] u
 	  where weekday = '$wd'
       and u.update_id = us.update_id
+      order by sched_epoch asc
 	";
 
 	my $select_history = "
@@ -184,7 +200,8 @@ sub print_table {
 	my $row_count = 0;
 	for my $row_aref ( @{$sched_aref} ) {
 		$row_count++;
-		my ( $sched_id, $update_id, $sched_offset, $name ) = @{$row_aref};
+		my ( $sched_id, $update_id, $sched_offset, $name, $is_legacy )
+			= @{$row_aref};
 		$hist_query->execute($sched_id);
 		my ( $hist_id, $hist_offset, $filedate, $filenum, $hist_ts, $late )
 			= $hist_query->fetchrow_array();
@@ -217,7 +234,7 @@ sub row_info {
 		= @_;
 	my $row_parity = $row_count % 2;
 
-	my $sched_time = offset2time($sched_offset) . ' CST';
+	my $sched_time = offset2time($sched_offset) . ' GMT';
 
 	# if there is a history record, it can be ontime or late
 	my ( $status, $daemon_ts, $recvd_time, $update );
@@ -273,9 +290,17 @@ sub get_wd {
 
 sub offset2time {
 	my $offset = shift;
+
+	# first drop the day portion of the offset
 	my $day_offset = get_wd() * 86400;
 	$offset -= $day_offset;
-	my $hours   = int( $offset / 60 );
-	my $minutes = $offset - $hours * 60;
+
+	# then extract hours and minutes for human readable
+	my $hours = int( $offset / 3600 );
+	$offset -= $hours * 3600;
+	my $minutes = int( $offset / 60 );
+
+	# these are the seconds remaining, if anyone cares
+	$offset -= $minutes * 60;
 	return sprintf '%02u:%02u', $hours, $minutes;
 }

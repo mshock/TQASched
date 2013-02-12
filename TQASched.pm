@@ -9,20 +9,19 @@ use Spreadsheet::ParseExcel::Utility qw(ExcelFmt);
 use DBI;
 use File::Copy;
 use Date::Manip
-	qw(ParseDate DateCalc Delta_Format UnixDate Date_DayOfWeek Date_GetPrev Date_ConvTZ);
+	qw(ParseDate DateCalc Delta_Format UnixDate Date_DayOfWeek Date_GetPrev Date_ConvTZ Date_PrevWorkDay Date_NextWorkDay);
 use Pod::Usage qw(pod2usage);
 use AppConfig qw(:argcount);
 use Exporter 'import';
+use constant REGEX_TRUE => qr/^\s*(?:true|(?:t)|(?:y)|yes|(?:1))\s*$/i;
 
 # options crash course:
 # -i -c to initialize database and populate with master scheduling
 # -s -d to start in server + daemon mode (normal execution)
 
-# okay, head off config load and verbosity check here
-
 # stuff to export to all subscripts
 our @EXPORT
-	= qw(load_conf refresh_handles kill_handles write_log usage redirect_stderr exec_time find_sched check_handles @db_hrefs @CLI);
+	= qw(load_conf refresh_handles kill_handles write_log usage redirect_stderr exec_time find_sched check_handles @db_hrefs @CLI REGEX_TRUE);
 
 # anything used only in a single subscript goes here
 our @EXPORT_OK = qw(refresh_legacy refresh_dis);
@@ -87,7 +86,7 @@ exit( dryrun($num_args) ) if $cfg->dryrun;
 
 # warn that the module was run with no args, which is prettymuch a dryrun
 # unless the config file tells it to do otherwise (nothing by default)
-if ( $num_args <= 1 ) {
+unless ($num_args) {
 	say
 		"no explicit arguments? sure hope ${\$cfg->conf_file} tells me what to do, oh silent one";
 }
@@ -241,7 +240,7 @@ sub exec_time {
 sub init_sched {
 
 	my $sched_xls = $cfg->sched;
-	say 'yes' and die if -f $sched_xls;
+	#say 'yes' and die if -f $sched_xls;
 
 	# create parser and parse xls
 	my $xlsparser = Spreadsheet::ParseExcel->new();
@@ -307,11 +306,46 @@ sub init_sched {
 # should be called often enough to keep them from going stale
 # especially for long-running scripts (daemon)
 sub refresh_handles {
+
+	# allow caller to specify handles
+	my @selected = @_;
+
+	my @refresh_list = ();
+
+	# if caller passed args, refresh only those handles
+	if ( scalar @selected ) {
+		for (@selected) {
+			when (m/sched/i)    { push @refresh_list, $sched_db }
+			when (m/auh/i)      { push @refresh_list, $auh_db }
+			when (m/prod1/i)    { push @refresh_list, $prod1_db }
+			when (m/dis1/i)     { push @refresh_list, $dis1_db }
+			when (m/dis2/i)     { push @refresh_list, $dis2_db }
+			when (m/dis3/i)     { push @refresh_list, $dis3_db }
+			when (m/dis4|tt3/i) { push @refresh_list, $dis4_db }
+			when (m/dis5|tt5/i) { push @refresh_list, $dis5_db }
+			default {
+				write_log(
+					{
+						logfile  => $cfg->log,
+							type => 'ERROR',
+							msg =>
+							"trying to refresh unrecognized handle: $_ from "
+							. (caller)[1]
+					}
+				);
+			}
+		}
+	}
+
+	# otherwise refresh all handles
+	else {
+		@refresh_list = ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
+						  $dis2_db,  $dis3_db, $dis4_db,  $dis5_db );
+	}
+
 	return ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
-			 $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 )
-		= map { init_handle($_) } ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
-									$dis2_db,  $dis3_db, $dis4_db,  $dis5_db
-		);
+			 $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5
+	) = map { init_handle($_) } @refresh_list;
 
 }
 
@@ -767,15 +801,18 @@ sub offset2time {
 # return appropriate DIS server db handle
 sub sender2dbh {
 	my ($sender) = @_;
-
-	my $server = 0;
+	my $server  = 0;
+	my $special = 0;
 
 	# make sure this is from DIS1, as all DIS content should be
 	if ( $sender =~ m/NTCP-DIS1-NTCP-(.*)/ ) {
 
 		# DIS 1..3
-		if ( $sender =~ m/DIS(\d+)\D*$/ ) {
+		if ( $sender =~ m/DIS(\d+)(\D*)$/ ) {
 			$server = $1;
+			# TODO: there will be a flag here {P} for special UPDs
+			# handle accordingly
+			$special = $2;
 		}
 
 		# TINTRIN 3,5 = DIS 4,5
@@ -1025,7 +1062,11 @@ sub define_defaults {
 		daemon_logfile => { DEFAULT => 'daemon.log',
 							ALIAS   => 'daemon_log',
 		},
-
+		daemon_runonce => {
+			DEFAULT => 0,
+			ARGS => '!',
+			ALIAS => 'runonce',
+		},
 		# scheduling configs
 		#
 		# path to master schedule spreadsheet
@@ -1091,6 +1132,16 @@ sub define_defaults {
 		report_date => { DEFAULT => '',
 						 ARGS    => '=i',
 						 ALIAS   => 'date',
+		},
+		report_legacy_filter => {
+			DEFAULT => '',
+			ARGS => '=s',
+			ALIAS => 'legacy|legacy_filter|filter_legacy',
+		},
+		report_dis_filter => {
+			DEFAULT => '',
+			ARGS => '=s',
+			ALIAS => 'dis|dis_filter|filter_dis',
 		},
 
 # refresh rate for the report page - can't be less than 10, and 0 means never.
@@ -1324,8 +1375,9 @@ sub create_db {
 				 msg     => 'creating TQASched database and table framework'
 			   }
 	);
-	
+
 	$dbh_sched->do('create database TQASched');
+
 	# slurp and execute sql create file
 	$dbh_sched->do( ${ slurp_file( $cfg->sql_file ) } );
 
@@ -1345,7 +1397,7 @@ sub slurp_file {
 
 # check that database exists
 sub check_db {
-	my $db_name = shift;
+	my $db_name     = shift;
 	my $check_query = "select db_id('$db_name')";
 	return ( ( $dbh_sched->selectall_arrayref($check_query) )->[0] )->[0];
 }
@@ -1418,12 +1470,14 @@ sub create_checklist {
 
 # poll auh metadata for DIS feed statuses
 sub refresh_dis {
+	my ($tyear, $tmonth, $tday) = @_;
 
 	# make sure that all the handles are defined;
 	check_handles();
 
-	my $current_wd     = now_wd();
-	my $current_offset = now_offset();
+	# argument = weekday to scan
+	my $current_wd = $tyear ? Date_DayOfWeek($tmonth, $tday, $tyear) : now_wd();
+	#my $current_offset = now_offset();
 	for my $current_wd ($current_wd) {
 
 		# get all updates expected for the current day
@@ -1456,15 +1510,15 @@ sub refresh_dis {
 # gets all needed info for non-enumerated feeds
 # gets DIS server (sender) for enumerated feeds to hit for build-specific details
 			my $transactions = "
-			select top 1 Status, ProcessTime, FileDate, FileNum, Sender, TransactionNumber, BuildTime 
+			select top 1 Status, ProcessTime, FileDate, FileNum, Sender, TransactionNumber, BuildTime, FeedDate 
 			from [TQALic].dbo.[PackageQueue] 
 			with (NOLOCK)
 			where TaskReference LIKE '%$feed_id%'
-			order by ProcessTime desc
+			order by FeedDate desc
 		";
 
 			my ( $status, $exec_end, $fd, $fn, $sender, $trans_num,
-				 $build_time )
+				 $build_time, $feed_date )
 				= $dbh_prod1->selectrow_array($transactions);
 
 			my $backdate_updates;
@@ -1512,9 +1566,8 @@ sub refresh_dis {
 				where BuildNumber = $build_num
 				and DataFeedId = '$feed_id'
 				
-				order by ExecutionDateTime desc
+				order by FeedDate desc
 			";
-
 				my ($trans_num) = $dbh_dis->selectrow_array($dis_trans);
 				unless ($trans_num) {
 					warn
@@ -1525,16 +1578,16 @@ sub refresh_dis {
 				# select this transaction from TQALic
 				# to get AUH process time, along with filenum and filedate
 				my $transactions = "
-				select top 1 Status, BuildTime, FileDate, FileNum, Sender, TransactionNumber, BuildTime 
+				select top 1 Status, BuildTime, FileDate, FileNum, Sender, TransactionNumber, BuildTime, FeedDate 
 				from [TQALic].dbo.[PackageQueue] 
 				with (NOLOCK)
 				where TaskReference LIKE '%$feed_id%'
 				and TransactionNumber = $trans_num
-				and DateDiff(dd, [BuildTime], GETUTCDATE()) < 1.25
-				order by ProcessTime desc
+				and DateDiff(dd, [BuildTime], GETUTCDATE()) < 1.5
+				order by FeedDate desc
 			";
 				(  $status, $exec_end, $fd, $fn, $sender, $trans_num,
-				   $build_time
+				   $build_time, $feed_date
 					)
 					= $dbh_prod1->selectrow_array($transactions)
 					or warn
@@ -1542,6 +1595,9 @@ sub refresh_dis {
 					and next;
 
 			}
+			
+			
+			
 
 			if ( defined $fd ) {
 				$fd =~ s/(\d+)-(\d+)-(\d+).*/$1$2$3/;
@@ -1563,6 +1619,19 @@ sub refresh_dis {
 				# compare transaction execution time to schedule offset
 				my $trans_offset = datetime2offset($exec_end);
 				my $cmp_result = comp_offsets( $trans_offset, $offset );
+
+				# filter earlier/later feed dates out, still waiting on them
+				if ($feed_date =~ m/(\d+)-(\d+)-(\d+)/) {
+					my $parsed_fd = ParseDate($feed_date);
+					my $cur_day = ParseDate("$tyear-$tmonth-$tday");
+					my $prev_day = Date_PrevWorkDay($cur_day, 1);
+					#my $next_day = Date_NextWorkDay($cur_day, 1);
+					#say "$parsed_fd, $cur_day, $prev_day";
+					 #|| $parsed_fd eq $next_day
+					unless ($parsed_fd eq $prev_day || $parsed_fd eq $cur_day) {
+						$cmp_result = -1;
+					}
+				}
 
 			   # if it's within an hour of the scheduled time, mark as on time
 			   # could also be early
@@ -1779,7 +1848,7 @@ sub write_log {
 			return unless $cfg->verbose;
 
 	   # don't put anything to STDOUT if this is the report, screws with proto
-			say $entry{msg} unless (caller)[1] =~ m/${\$cfg->hosted_script}/i;
+	   #say $entry{msg} unless (caller)[1] =~ m/${\$cfg->hosted_script}/i;
 		}
 		when (m'WARN') {
 			return unless $cfg->enable_warn;

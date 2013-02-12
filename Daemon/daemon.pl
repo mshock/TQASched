@@ -54,14 +54,27 @@ while ( ++$run_counter ) {
 
 	say 'got new db handles, running tasks';
 
-	#refresh_dis();
-	refresh_legacy();
+	refresh();
 
 	say 'daemon run finished, slaying db handles';
 	kill_handles( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
 				  $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 );
 	say "sleeping for ${\$cfg->update_freq} seconds...";
+	last if $cfg->runonce;
 	sleep( $cfg->update_freq );
+}
+
+sub refresh {
+	my ($year, $month, $day) = get_today();
+	# TODO: spawn background refreshes for other days
+	refresh_dis($year, $month, $day);
+	#refresh_legacy();	
+}
+
+sub get_today {
+	my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst )
+		= gmtime(time);
+	return ($year + 1900, $mon + 1, $mday);
 }
 
 # write to log when daemon exits (catches most cases)

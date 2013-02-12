@@ -28,7 +28,8 @@ create table [TQASched].dbo.[Update_History] (
 	filedate int,
 	filenum tinyint,
 	timestamp DateTime,
-	late char(1)
+	late char(1),
+	transnum int
 );
 --# create linking table from DIS feed_ids to update_ids
 	create table [TQASched].dbo.[Update_DIS] (

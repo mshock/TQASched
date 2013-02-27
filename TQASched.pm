@@ -4,6 +4,7 @@ package TQASched;
 
 use strict;
 use feature qw(say switch);
+use Storable;
 use Spreadsheet::ParseExcel;
 use Spreadsheet::ParseExcel::Utility qw(ExcelFmt);
 use DBI;
@@ -993,8 +994,11 @@ sub load_conf {
 						   }
 	);
 
-	# $cfg->define() any default values and set their options
-	define_defaults();
+# bring in configuration code from external file
+# separate AppConfig hash and possible future configs for ease of use
+# INV: look into best practices for calling sub-packages (another module is preventing me from using Config.pm)
+	require 'Config/config.pl';
+	TQASched::Config::define_defaults( \$cfg );
 
 # first pass at CLI args, mostly checking for config file setting (note - consumes @ARGV)
 	$cfg->getopt();
@@ -1027,193 +1031,6 @@ sub appconfig_error {
 				 msg     => join( "\t", @_ ),
 			   }
 	);
-}
-
-sub define_defaults {
-	my %config_vars = (
-
-		# server configs
-		# server host port ex: localhost:9191
-		server_port => { DEFAULT => 9191,
-						 ARGS    => '=i',
-						 ALIAS   => 'host_port|port|p',
-		},
-
-   # server auto-start, good to set in conf file once everything is running OK
-		server_start => { DEFAULT => 0,
-						  ARGS    => '!',
-						  ALIAS   => 'start_server|s',
-		},
-
-		# server logfile path
-		server_logfile => { DEFAULT => 'server.log',
-							ALIAS   => 'server_log',
-		},
-
-		# path to script which prints content
-		# this content is hosted through TCP/IP under HTTP
-		server_hosted_script => {
-						DEFAULT => 'test.pl',
-						ALIAS => 'hosted_script|target_script|content_script',
-		},
-
-   # daemon configs
-   # daemon auto-start, good to set in conf file once everythign is running OK
-		daemon_start => { DEFAULT => 0,
-						  ARGS    => '!',
-						  ALIAS   => 'start_daemon|d'
-		},
-
-		# periodicity of the daemon loop (seconds to sleep)
-		daemon_update_frequency => { DEFAULT => 60,
-									 ALIAS   => 'update_freq',
-		},
-
-		# daemon logfile path
-		daemon_logfile => { DEFAULT => 'daemon.log',
-							ALIAS   => 'daemon_log',
-		},
-		daemon_runonce => { DEFAULT => 0,
-							ARGS    => '!',
-							ALIAS   => 'runonce',
-		},
-
-		# scheduling configs
-		#
-		# path to master schedule spreadsheet
-		sched_file => { DEFAULT => 'TQA_Update_Schedule.xls',
-						ALIAS   => 'sched',
-		},
-
-		# path to the operator legacy update checklist
-		sched_checklist_path => { DEFAULT => '..',
-								  ALIAS   => 'checklist',
-		},
-
-		# initialize scheduling data
-		# parse master schedule
-		# insert scheduling records and metadata into db
-		sched_init => { DEFAULT => 0,
-						ARGS    => '!',
-						ALIAS   => 'init_sched|i',
-		},
-
-	   # create scheduling the scheduling database framework from scratch, yum
-		sched_create_db => { DEFAULT => 0,
-							 ARGS    => '!',
-							 ALIAS   => 'create_db|c',
-		},
-
-		# ignore db existence check, for debugging
-		sched_force_create_db => { DEFAULT => 0,
-								   ALIAS   => 'force_create',
-		},
-
-		# link update ids to feed ids in DIS
-		sched_import_dis => { DEFAULT => 0,
-							  ARGS    => '!',
-							  ALIAS   => 'import_dis|m'
-		},
-
-		# report (content gen script) configs
-		# report script's logfile
-		report_logfile => {
-			DEFAULT => 'report.log',
-			ALIAS   => 'report_log',
-
-		},
-
-# path to css stylesheet file for report gen, hosted statically and only by request!
-# all statically hosted files are defined relative to the TQASched/Resources/ directory, where they enjoy living (for now, bwahahaha)
-		report_stylesheet => { DEFAULT => 'styles.css',
-							   ALIAS   => 'styles|stylesheet',
-		},
-
-# path to jquery codebase (an image of it taken sometime in... Jan 2013) - not in use yet
-		report_jquery => { DEFAULT => 'jquery.js',
-						   ALIAS   => 'jquery',
-		},
-
-	# path to user created javascript libraries and functions - not in use yet
-		report_user_js => { DEFAULT => 'js.js',
-							ALIAS   => 'user_js',
-		},
-
-		# refresh rate for report page
-		report_refresh => { DEFAULT => '300',
-							ALIAS   => 'refresh',
-		},
-
-		# report date CGI variable
-		report_date => { DEFAULT => '',
-						 ARGS    => '=i',
-						 ALIAS   => 'date',
-		},
-		report_legacy_filter => {
-								DEFAULT => '',
-								ARGS    => '=s',
-								ALIAS => 'legacy|legacy_filter|filter_legacy',
-		},
-		report_dis_filter => { DEFAULT => '',
-							   ARGS    => '=s',
-							   ALIAS   => 'dis|dis_filter|filter_dis',
-		},
-
-# refresh rate for the report page - can't be less than 10, and 0 means never.
-# (in seconds)
-
-		# default (misc) configs
-		#
-		# toggle or set verbosity level to turn off annoying, snarky messages
-		default_verbosity => { DEFAULT => 1,
-							   ARGS    => ':i',
-							   ALIAS   => 'verbosity|verbose|v',
-		},
-
-		# toggle logging
-		default_enable_logging => { DEFAULT => 1,
-									ARGS    => '!',
-									ALIAS   => 'logging|logging_enabled|l',
-		},
-
-		# timezone to write log timestamps in
-		default_log_tz => { DEFAULT => 'local',
-							ALIAS   => 'tz|timezone',
-		},
-
-		# helpme / manpage from pod
-		default_help => { DEFAULT => 0,
-						  ARGS    => '!',
-						  ALIAS   => 'help|version|usage|h'
-		},
-
-# path to config file
-# (optional, I suppose if you wanted to list all database connection info in CLI args)
-		default_config_file => { DEFAULT => "TQASched.conf",
-								 ARGS    => '=s',
-								 ALIAS => "cfg_file|conf_file|config_file|f",
-		},
-
-# toggle dryrun mode = non-destructive test of module load and all db connections
-		default_dryrun => { DEFAULT => 0,
-							ARGS    => '!',
-							ALIAS   => 'dryrun|y',
-		},
-		default_logfile => { DEFAULT => 'TQASched.log',
-							 ALIAS   => 'log',
-		},
-		default_enable_warn => { DEFAULT => 1,
-								 ALIAS   => 'enable_warn',
-		},
-		default_late_threshold => { DEFAULT => 3600,
-									ALIAS   => 'late_threshold',
-		},
-		default_sql_definitions => { DEFAULT => 'TQASched.sql',
-									 ALIAS   => 'create_script|sql_file'
-		}
-	);
-
-	$cfg->define( $_ => \%{ $config_vars{$_} } ) for keys %config_vars;
 }
 
 # build and return hashref of db connection info from configs
@@ -1384,66 +1201,67 @@ sub create_db {
 		);
 		return 1;
 	}
-	elsif (!$cfg->force_create) {
+	elsif ( !$cfg->force_create ) {
 		say 'not found,';
 		write_log( { logfile => $cfg->log,
-				 type    => 'INFO',
-				 msg     => 'creating TQASched database and table framework'
-			   }
+					 type    => 'INFO',
+					 msg => 'creating TQASched database and table framework'
+				   }
 		);
 		$dbh_sched->do('create database TQASched');
 	}
 
 	# slurp and execute sql create file
-	$dbh_sched->do( ${ slurp_file( $cfg->sql_file ) } ) or warn "failed to populate TQASched db with tables\n";
+	$dbh_sched->do( ${ slurp_file( $cfg->sql_file ) } )
+		or warn "failed to populate TQASched db with tables\n";
 
-#	# create update table
-#	$dbh_sched->do(
-#		"create table [TQASched].dbo.[Updates] (
-#	update_id int not null identity(1,1),
-#	name varchar(255) not null unique,
-#	priority tinyint,
-#	is_legacy bit
-#	)"
-#	) or die "could not create Updates table\n", $dbh_sched->errstr;
-#
-#	# create update/schedule linking table
-#	$dbh_sched->do(
-#		"create table [TQASched].dbo.[Update_Schedule] (
-#	sched_id int not null identity(1,1),
-#	update_id int not null,
-#	weekday tinyint not null,
-#	sched_epoch int not null
-#	)"
-#		)
-#		or die "could not create Update_Schedule table\n", $dbh_sched->errstr;
-#
-#	# create history tracking table
-#	$dbh_sched->do(
-#		"create table [TQASched].dbo.[Update_History] (
-#	hist_id int not null identity(1,1),
-#	update_id int not null,
-#	sched_id int not null,
-#	hist_epoch int,
-#	filedate int,
-#	filenum tinyint,
-#	timestamp DateTime,
-#	late char(1),
-#	transnum int
-#	)"
-#		)
-#		or die "could not create Update_History table\n", $dbh_sched->errstr;
-#
-#	# create linking table from DIS feed_ids to update_ids
-#	$dbh_sched->do( "
-#	create table [TQASched].dbo.[Update_DIS] (
-#	update_dis_id int not null identity(1,1),
-#	feed_id varchar(20) not null,
-#	update_id int not null
-#	)
-#	" )
-#		or warn
-#		"\tcould not create DIS linking table - Update_DIS, may already exist\n";
+  #	# create update table
+  #	$dbh_sched->do(
+  #		"create table [TQASched].dbo.[Updates] (
+  #	update_id int not null identity(1,1),
+  #	name varchar(255) not null unique,
+  #	priority tinyint,
+  #	is_legacy bit
+  #	)"
+  #	) or die "could not create Updates table\n", $dbh_sched->errstr;
+  #
+  #	# create update/schedule linking table
+  #	$dbh_sched->do(
+  #		"create table [TQASched].dbo.[Update_Schedule] (
+  #	sched_id int not null identity(1,1),
+  #	update_id int not null,
+  #	weekday tinyint not null,
+  #	sched_epoch int not null
+  #	)"
+  #		)
+  #		or die "could not create Update_Schedule table\n", $dbh_sched->errstr;
+  #
+  #	# create history tracking table
+  #	$dbh_sched->do(
+  #		"create table [TQASched].dbo.[Update_History] (
+  #	hist_id int not null identity(1,1),
+  #	update_id int not null,
+  #	sched_id int not null,
+  #	hist_epoch int,
+  #	filedate int,
+  #	filenum tinyint,
+  #	timestamp DateTime,
+  #	late char(1),
+  #	transnum int
+  #	)"
+  #		)
+  #		or die "could not create Update_History table\n", $dbh_sched->errstr;
+  #
+  #	# create linking table from DIS feed_ids to update_ids
+  #	$dbh_sched->do( "
+  #	create table [TQASched].dbo.[Update_DIS] (
+  #	update_dis_id int not null identity(1,1),
+  #	feed_id varchar(20) not null,
+  #	update_id int not null
+  #	)
+  #	" )
+  #		or warn
+  #		"\tcould not create DIS linking table - Update_DIS, may already exist\n";
 
 	say 'done creating db';
 	return 1;

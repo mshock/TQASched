@@ -179,9 +179,9 @@ sub define_defaults {
 						  ALIAS   => 'help|version|usage|h'
 		},
 
-# path to config file
+# path to config file (relative to the module)
 # (optional, I suppose if you wanted to list all database connection info in CLI args)
-		default_config_file => { DEFAULT => "TQASched.conf",
+		default_config_file => { DEFAULT => "Config/TQASched.ini",
 								 ARGS    => '=s',
 								 ALIAS => "cfg_file|conf_file|config_file|f",
 		},
@@ -200,7 +200,7 @@ sub define_defaults {
 		default_late_threshold => { DEFAULT => 3600,
 									ALIAS   => 'late_threshold',
 		},
-		default_sql_definitions => { DEFAULT => 'TQASched.sql',
+		default_sql_definitions => { DEFAULT => 'Config/TQASched.sql',
 									 ALIAS   => 'create_script|sql_file'
 		}
 	);

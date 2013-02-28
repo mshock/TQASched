@@ -67,8 +67,8 @@ while ( ++$run_counter ) {
 sub refresh {
 	my ($year, $month, $day) = get_today();
 	# TODO: spawn background refreshes for other days
-	refresh_dis($year, $month, $day);
-	#refresh_legacy();	
+	#refresh_dis($year, $month, $day);
+	refresh_legacy();	
 }
 
 sub get_today {

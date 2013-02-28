@@ -868,6 +868,20 @@ sub update_history {
 			$hashref->{transnum}
 		);
 
+	# if there was a trasnum some things need to be done:
+	my $select_trans_num = '';
+	if ($trans_num) {
+
+		# only filter by transaction number if one was passed in
+		$select_trans_num = "and transnum = $trans_num";
+	}
+
+	# otherwise set it to impossible value
+	# (for updates that have fd/fn but are not yet done processing)
+	else {
+		$trans_num = -1;
+	}
+
 	# update if late and not yet recvd
 	# or skip if it was already recvd
 	# otherwise, insert
@@ -875,7 +889,7 @@ sub update_history {
 		select hist_id, late, filedate, filenum
 		from [TQASched].dbo.Update_History
 		where  sched_id = $sched_id
-		and transnum = $trans_num
+		$select_trans_num
 	" );
 
 	# recvd already, return
@@ -912,7 +926,7 @@ sub update_history {
 		my $insert_hist = "
 			insert into TQASched.dbo.Update_History 
 			values
-			($update_id, $sched_id, $trans_offset, $fd_q, $fn_q, GetUTCDate(), '$late_q', $trans_num)
+			($update_id, $sched_id, $trans_offset, $fd_q, $fn_q, GetUTCDate(), '$late_q', $trans_num )
 		";
 
 		#say $insert_hist;
@@ -1295,7 +1309,8 @@ sub find_sched {
 		or warn "could open/find checklist dir" . $cfg->checklist . "$!\n";
 	my @files = readdir($dir_fh);
 	closedir $dir_fh;
-	say 'success. searching for latest checklist';
+	say 'success.';
+	say 'searching for latest checklist';
 
 	# get current datetime for reference
 	my $now_date = ParseDate( 'epoch ' . time );
@@ -1306,12 +1321,15 @@ sub find_sched {
 	my $next_sun = DateCalc( $last_mon, 'in 6 days' );
 	my ( $start_string, $end_string )
 		= map { UnixDate( $_, '%e %b' ) } ( $last_mon, $next_sun );
+	my ( $start_month, $end_month )
+		= map {s/\s*\d*//gr} ( $start_string, $end_string );
 
-	# if same month, remove first month
-	if ( ( $start_string =~ m/\s*(\D+)/ ) eq ( $end_string =~ m/\s*(\D+)/ ) )
+# if same month - create a variation on name with redundant first month removed
+	if (( $start_string =~ s/\s*\d*//gr ) eq ( $end_string =~ s/\s*\d*//gr ) )
 	{
 		$start_string =~ s/\D*//g;
 	}
+
 	map {s/\s*(\d+)/&ordinate($1)/e} ( $start_string, $end_string );
 	my $checklist_file
 		= $cfg->checklist . "/DailyChecklist_$start_string-$end_string.xls";
@@ -1327,19 +1345,20 @@ sub find_sched {
 		create_checklist($checklist_file)
 			or warn "could not create checklist file $checklist_file\n";
 	}
+	say 'found checklist';
 	return $checklist_file;
 }
 
 # add ordinal component to numeric values (-st,-nd,-rd,-th)
 sub ordinate {
 	my ($number) = (@_);
-	my $ord;
+	my $ord = '';
 	given ($number) {
-		while (/1[123]$/) { $ord = 'th' }
-		while (/1$/)      { $ord = 'st' }
-		while (/2$/)      { $ord = 'nd' }
-		while (/3$/)      { $ord = 'rd' }
-		default { $ord = 'th' };
+		when (/1[123]$/) { $ord = 'th' }
+		when (/1$/)      { $ord = 'st' }
+		when (/2$/)      { $ord = 'nd' }
+		when (/3$/)      { $ord = 'rd' }
+		default          { $ord = 'th' };
 	}
 	return $number . $ord;
 }
@@ -1509,7 +1528,13 @@ sub refresh_dis {
 
 				# compare transaction execution time to schedule offset
 				my $trans_offset = datetime2offset($exec_end);
-				my $cmp_result = comp_offsets( $trans_offset, $offset );
+				my $cmp_result;
+				if ( $trans_offset == -1 ) {
+					$cmp_result = -1;
+					$cmp_result = comp_offsets( $trans_offset, $offset );
+				}
+				else {
+				}
 
 			# filter earlier/later feed dates out, still waiting on them
 			#				if ($feed_date =~ m/(\d+)-(\d+)-(\d+)/) {
@@ -1591,7 +1616,7 @@ sub refresh_legacy {
 	my $workbook  = $xlsparser->parse($sched_xls)
 		or die "unable to parse spreadsheet: $sched_xls\n",
 		$xlsparser->error();
-	say 'done';
+	say 'done loading checklist into memory';
 
 	# iterate over each weekday (worksheets)
 	for my $worksheet ( $workbook->worksheets() ) {
@@ -1666,13 +1691,19 @@ sub refresh_legacy {
 			if ( $row_data->{filedate} && $row_data->{filenum} ) {
 				$trans_ts = lookup_update( $row_data->{filedate},
 										   $row_data->{filenum} );
-				$trans_offset = datetime2offset($trans_ts);
+				$trans_offset
+					= $trans_ts ? datetime2offset($trans_ts) : -1;
 
 			}
 
 			# compare transaction execution time to schedule offset
 			# GMT now		# GMT sched
-			my $cmp_result = comp_offsets( $trans_offset, $sched_offset );
+			my $cmp_result
+				= $trans_offset == -1
+				? comp_offsets( $trans_offset, $sched_offset )
+				: -1;
+
+			#my $cmp_result = comp_offsets( $trans_offset, $sched_offset );
 
 			# if it's within an hour of the scheduled time, mark as on time
 			# could also be early
@@ -1738,7 +1769,7 @@ sub lookup_update {
 		and FileNum= '$filenum'
 		and Status1 = 100 and Status2 = 100
 	";
-	my $fdfn_ts = ( $dbh_prod1->selectrow_array($select_fdfn_query) );
+	my ($fdfn_ts) = ( $dbh_prod1->selectrow_array($select_fdfn_query) );
 
 	return $fdfn_ts if $fdfn_ts;
 	return;

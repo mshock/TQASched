@@ -1,8 +1,7 @@
-# IMPORTANT - ignore config file for security reasons
-TQASched.conf
-# ignore any logs
-*.log
-# ignore Eclipse project metadata
-.project
-# ignore old code and snippets dir
-Old/
+# .gitignore file
+# ignore secure or irrelevant files/dirs
+
+*.log					# any logs
+.project				# Eclipse project metadata
+/Old					# old code directory
+/testing.pl				# unit testing script

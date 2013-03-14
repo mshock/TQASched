@@ -1,15 +1,20 @@
-#! perl
+#! perl -w
 
 package TQASched;
+
+
+# TODO switch log handling to log4perl
 
 use strict;
 use feature qw(say switch);
 use Spreadsheet::ParseExcel;
 use Spreadsheet::ParseExcel::Utility qw(ExcelFmt);
 use DBI;
+use Carp;
 use File::Copy;
 use Date::Manip
 	qw(ParseDate DateCalc Delta_Format UnixDate Date_DayOfWeek Date_GetPrev Date_ConvTZ Date_PrevWorkDay Date_NextWorkDay);
+use Time::Local;
 use Pod::Usage qw(pod2usage);
 use AppConfig qw(:argcount);
 use Exporter 'import';
@@ -1015,10 +1020,11 @@ sub load_conf {
 
 # first pass at CLI args, mostly checking for config file setting (note - consumes @ARGV)
 	$cfg->getopt();
-
+	my $cfg_path = (defined $relative_path ? "$relative_path/" : '' )
+				. $cfg->config_file();
+	
 # parse config file for those vivacious variables and their rock steady, dependable values
-	$cfg->file( ( defined $relative_path ? "$relative_path/" : '' )
-				. $cfg->config_file() );
+	$cfg->file( $cfg_path );
 
 	# second pass at CLI args, they take precedence over config file
 	$cfg->getopt( \@CLI );
@@ -1299,7 +1305,13 @@ sub check_db {
 
 # get latest schedule checklist
 sub find_sched {
-
+	# optional argument to refresh specific spreadsheet file
+	my ($year, $month, $mday) = @_;
+	
+	if (defined $year) {
+#		 = timegm($sec,$min,$hour,$mday,$mon,$year);
+	}
+	
 # old method, finds the youngest file and matches the date range (good for transition)
 #return find_youngest_sched();
 
@@ -1310,6 +1322,9 @@ sub find_sched {
 	closedir $dir_fh;
 	say 'success.';
 	say 'searching for latest checklist';
+
+	#timegm();
+	
 
 	# get current datetime for reference
 	my $now_date = ParseDate( 'epoch ' . time );
@@ -1683,9 +1698,7 @@ sub refresh_legacy {
 				next;
 			}
 
-#my $exec_end     = gmtime(time);
-# TODO: this should actually be looked up from filedate/filenum record in AUH db
-#my $trans_offset = now_offset();
+
 			my ( $trans_ts, $trans_offset ) = ( 0, -1 );
 			if ( $row_data->{filedate} && $row_data->{filenum} ) {
 				$trans_ts = lookup_update( $row_data->{filedate},
@@ -1770,7 +1783,7 @@ sub lookup_update {
 	";
 	my ($fdfn_ts) = ( $dbh_prod1->selectrow_array($select_fdfn_query) );
 
-	return $fdfn_ts if $fdfn_ts;
+	return $fdfn_ts if defined $fdfn_ts;
 	return;
 
 }
@@ -1800,15 +1813,15 @@ sub write_log {
 		}
 		when (m'WARN') {
 			return unless $cfg->enable_warn;
-			warn $entry{msg};
+			carp $entry{msg};
 		}
 		when (m'ERROR') {
-			warn $entry{msg};
+			carp $entry{msg};
 		}
 
 		# warn about unusual entry types, but still log them
 		default {
-			warn "unrecognized log entry type: $entry{type}\n";
+			carp "unrecognized log entry type: $entry{type}\n";
 			$entry{msg} = 'UNKN';
 		}
 	}
@@ -1828,8 +1841,6 @@ sub redirect_stderr {
 	open my $err_fh, '>>', $error_log;
 	STDERR->fdopen( $err_fh, 'a' )
 		or warn "failed to pipe errors to logfile:$!\n";
-
-	#return $err_fh;
 }
 
 sub usage {

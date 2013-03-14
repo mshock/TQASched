@@ -1,7 +1,11 @@
 # .gitignore file
 # ignore secure or irrelevant files/dirs
 
-*.log					# any logs
-.project				# Eclipse project metadata
-/Old					# old code directory
-/testing.pl				# unit testing script
+# testing script
+/testing.pl
+# any logs
+*.log	
+# Eclipse project metadata
+/.project
+# old code directory
+/Old

@@ -12,6 +12,8 @@ use Spreadsheet::ParseExcel::Utility qw(ExcelFmt);
 use DBI;
 use Carp;
 use File::Copy;
+# TODO use DateTimes instead of offsets to allow handling DST/TZ
+use DateTime;
 use Date::Manip
 	qw(ParseDate DateCalc Delta_Format UnixDate Date_DayOfWeek Date_GetPrev Date_ConvTZ Date_PrevWorkDay Date_NextWorkDay);
 use Time::Local;

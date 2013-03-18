@@ -1,0 +1,151 @@
+=pod
+
+=head1 NAME
+
+TQASched - a module for monitoring both legacy and DIS feed timeliness using AUH metadata
+
+=head1 SYNOPSIS
+
+perl TQASched.pm [optional flags]
+
+=head1 DESCRIPTION
+
+AUH content schedule monitoring module
+the module itself contains all utility functions for this application
+however, only really needs to be called directly to initialize app database and do testing
+
+capable of running all or in part the sub-scripts which support the application:
+
+=over 4
+
+=item F<Server/server.pl>
+
+HTTP server script which serves the report and any other files
+
+=item F<Daemon/daemon.pl>
+
+daemon which cyclicly compares AUH metadata against scheduling rules and updates TQASched db accordingly
+
+=item F<Server/report.pl>
+
+script which dynamically generates the web application interface HTML 
+
+=back
+
+=head3 COMPONENTS:
+
+=over 4 
+
+=item B<server>
+
+start/debug http server (and by extension, the report)
+	
+=item B<daemon>
+
+start/debug scheduling daemon
+	
+=item B<report>
+
+generate report snapshot without running the server
+  
+=back
+
+=head1 OPTIONS
+
+=over 6
+
+=item B<-c --create-db>
+
+create database from scratch
+
+=item B<-d --start_daemon>
+
+fork the scheduling monitoring daemon script after startup
+
+=item B<-f --config-file>=I<configpath>
+
+specify path for config file in the command line
+defaults to TQASched.conf in current dir
+
+=item B<-h --help --version>
+
+print this manpage and exit
+
+=item B<-i --init_sched> 
+
+initialize schedule from master spreadsheet
+
+=item B<-l --logging>
+
+logging toggle, on/off
+
+=item B<-p --port>=I<portnumber>
+
+specify port the server hosts the web application on
+
+=item B<-s --start_server>
+
+fork the http server script to begin hosting the report script
+
+=back
+
+=head1 FILES
+
+=over 6
+
+=item F<TQASched.pm>
+
+this self-documented module, you're reading the manpage for it right now! 
+refer to the rest of the documentation for usage and configuration details
+
+=item F<TQASched.conf>
+
+C<.ini> style config file primarily for the database credentials but is capable of setting any other configuration variables as well
+
+=item F<Daemon/daemon.pl>
+
+daemon which cyclicly compares AUH metadata against scheduling rules and updates TQASched db accordingly
+daemon logs can be found in this subdirectory
+
+=item F<Server/server.pl>
+
+server script (also a daemon in its own right)
+hosts the output of the report file - the HTML webapp frontend
+also hosts various static files (css, js, generated xls files, etc.)
+server logs can be found in this subdirectory
+
+=item F<Server/report.pl>
+
+report script which dynamically generates HTML web application content based on the TQASched db
+report logs can be found in this subdirectory
+
+=item F<TQA_Update_Schedule.xls>
+
+master schedule checklist Excel spreadsheet
+this is used for either initializing the TQASched database
+or for adding new scheduling content
+parsing requires that the syntax of this document is strict so leave no trace 
+unless you know what you're doing - adding content row(s)
+removing content rows is not implemented yet and will have no effect on the db
+
+=item F<//E<lt>network.pathE<gt>/DailyChecklist_E<lt>daterangeE<gt>.xls>
+
+the operator checklist Excel spreadsheet for legacy content
+new sheets automatically generated in the network path by the daemon on weekly basis
+network path is generally set in configs
+date range in the filename is calculated
+strict formatting must be maintained in this file so that it may be parsed properly by the daemon
+
+=back
+
+=head1 AUTHOR
+
+Matt Shockley
+
+=head1 COPYRIGHT AND LICENSE
+Copyright 2012 Matt Shockley
+
+This program is free software; you can redistribute it and/or modify 
+it under the same terms as Perl itself.
+
+=cut

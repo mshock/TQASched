@@ -2,8 +2,7 @@
 
 package TQASched;
 
-
-# TODO switch log handling to log4perl
+# TODO switch log/debug handling to log4perl
 
 use strict;
 use feature qw(say switch);
@@ -12,6 +11,7 @@ use Spreadsheet::ParseExcel::Utility qw(ExcelFmt);
 use DBI;
 use Carp;
 use File::Copy;
+
 # TODO use DateTimes instead of offsets to allow handling DST/TZ
 use DateTime;
 use Date::Manip
@@ -155,8 +155,7 @@ sub execute_tasks {
 					 logfile => $cfg->log
 				   }
 		);
-	}
-	else {
+	} else {
 
 		# TODO: set the USR1 signal handler - for cleanly exiting
 		# print out some nice info
@@ -426,8 +425,7 @@ sub extract_row_init {
 		when (/^0$/) {
 			if ($value) {
 				$row_href->{cst_clock} = $value;
-			}
-			else {
+			} else {
 
 				#warn "no value found in column 0 (CST)\n";
 				return;
@@ -438,8 +436,7 @@ sub extract_row_init {
 		when (/^1$/) {
 			if ($value) {
 				$row_href->{sched_epoch} = time2offset($value);
-			}
-			else {
+			} else {
 
 				#warn "no value found in column 1 (GMT)\n";
 				return;
@@ -450,8 +447,7 @@ sub extract_row_init {
 		when (/^2$/) {
 			if ($value) {
 				$row_href->{update} = $value;
-			}
-			else {
+			} else {
 
 				#warn "no value found for column 2 (update)\n";
 				return;
@@ -462,8 +458,7 @@ sub extract_row_init {
 		when (/^3$/) {
 			if ($value) {
 				$row_href->{feed_id} = $value;
-			}
-			else {
+			} else {
 
 				#warn "no value found for column 3 (feed id)\n";
 				return;
@@ -475,17 +470,14 @@ sub extract_row_init {
 			if ($value) {
 				if ( $value =~ m/legacy/i ) {
 					$row_href->{is_legacy} = 1;
-				}
-				elsif ( $value =~ m/dis/i ) {
+				} elsif ( $value =~ m/dis/i ) {
 					$row_href->{is_legacy} = 0;
-				}
-				else {
+				} else {
 
 					#warn "unrecognized value in column 4 (legacy flag)\n";
 					return;
 				}
-			}
-			else {
+			} else {
 
 				#warn "no value found for column 4 (legacy flag)\n";
 				return;
@@ -496,8 +488,7 @@ sub extract_row_init {
 		when (/^5$/) {
 			if ( defined $value ) {
 				$row_href->{priority} = $value;
-			}
-			else {
+			} else {
 
 				#warn "no value found for column 5 (priority)\n";
 				return;
@@ -509,8 +500,7 @@ sub extract_row_init {
 		when (/^6$/) {
 			if ($value) {
 				$row_href->{days} = $value;
-			}
-			else {
+			} else {
 
 				#warn "no value found for column 6 (day/s of week)\n";
 				return;
@@ -798,6 +788,21 @@ sub comp_offsets {
 	}
 }
 
+# returns the current YYYY-MM-DD GMT for prepending to offset times
+sub now_date {
+	my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst )
+		= gmtime(time);
+	return sprintf '%u-%02u-%02u', $year + 1900, $mon + 1, $mday;
+}
+
+# convert scheduling offset to DateTime with specified/current date
+sub dboffset2datetime {
+	my ($db_offset, $target_date) = @_;
+	$target_date ||= now_date();
+	
+}
+
+
 # OLD - works in minutes not seconds
 sub offset2time {
 	my $offset = shift;
@@ -831,11 +836,9 @@ sub sender2dbh {
 			my $tt_server = $1;
 			if ( $tt_server == 3 ) {
 				$server = 4;
-			}
-			elsif ( $tt_server == 5 ) {
+			} elsif ( $tt_server == 5 ) {
 				$server = 5;
-			}
-			else {
+			} else {
 				warn "unrecognized TINTRIN server: $sender\n";
 			}
 		}
@@ -843,13 +846,11 @@ sub sender2dbh {
 		# PROD01 - special updates, I guess
 		elsif ( $sender =~ m/TQAPROD01/ ) {
 			return $dbh_prod1;
-		}
-		else {
+		} else {
 			warn
 				"sanity check failed on DIS sender $sender, unable to match server\n";
 		}
-	}
-	else {
+	} else {
 		warn "DIS feed sender $sender somehow not sent from DIS1\n";
 	}
 
@@ -1022,11 +1023,11 @@ sub load_conf {
 
 # first pass at CLI args, mostly checking for config file setting (note - consumes @ARGV)
 	$cfg->getopt();
-	my $cfg_path = (defined $relative_path ? "$relative_path/" : '' )
-				. $cfg->config_file();
-	
+	my $cfg_path = ( defined $relative_path ? "$relative_path/" : '' )
+		. $cfg->config_file();
+
 # parse config file for those vivacious variables and their rock steady, dependable values
-	$cfg->file( $cfg_path );
+	$cfg->file($cfg_path);
 
 	# second pass at CLI args, they take precedence over config file
 	$cfg->getopt( \@CLI );
@@ -1099,8 +1100,7 @@ sub offset_weekdays {
 				$first_int++;
 			}
 
-		}
-		elsif ( $first_int > $second_int ) {
+		} elsif ( $first_int > $second_int ) {
 			while (1) {
 				push @offsets,
 					[ $first_int * $day_increment + $sched_offset, $first_int
@@ -1113,8 +1113,7 @@ sub offset_weekdays {
 				}
 			}
 
-		}
-		else {
+		} else {
 			warn
 				"failed sanity check: $first_date:$first_int $second_date:$second_int\n";
 			return;
@@ -1153,8 +1152,7 @@ sub offset_weekdays {
 					];
 				$first_int++;
 			}
-		}
-		elsif ( $first_int > $second_int ) {
+		} elsif ( $first_int > $second_int ) {
 			while (1) {
 				push @offsets,
 					[ $first_int * $day_increment + $sched_offset, $first_int
@@ -1167,8 +1165,7 @@ sub offset_weekdays {
 				}
 			}
 		}
-	}
-	else {
+	} else {
 		warn "unable to parse $days date range\n";
 		return;
 	}
@@ -1212,7 +1209,7 @@ sub create_db {
 	say 'checking if TQASched database already exists';
 
 	# if already exists, return
-	if ( check_db('TQASched') && !$cfg->force_create ) {
+	if ( check_db('TQASched2') && !$cfg->force_create ) {
 		write_log(
 			{  logfile => $cfg->log,
 			   type    => 'ERROR',
@@ -1221,15 +1218,14 @@ sub create_db {
 			}
 		);
 		return 1;
-	}
-	elsif ( !$cfg->force_create ) {
+	} elsif ( !$cfg->force_create ) {
 		say 'not found,';
 		write_log( { logfile => $cfg->log,
 					 type    => 'INFO',
 					 msg => 'creating TQASched database and table framework'
 				   }
 		);
-		$dbh_sched->do('create database TQASched');
+		$dbh_sched->do('create database TQASched2');
 	}
 
 	# slurp and execute sql create file
@@ -1307,13 +1303,15 @@ sub check_db {
 
 # get latest schedule checklist
 sub find_sched {
+
 	# optional argument to refresh specific spreadsheet file
-	my ($year, $month, $mday) = @_;
-	
-	if (defined $year) {
-#		 = timegm($sec,$min,$hour,$mday,$mon,$year);
+	my ( $year, $month, $mday ) = @_;
+
+	if ( defined $year ) {
+
+		#		 = timegm($sec,$min,$hour,$mday,$mon,$year);
 	}
-	
+
 # old method, finds the youngest file and matches the date range (good for transition)
 #return find_youngest_sched();
 
@@ -1326,7 +1324,6 @@ sub find_sched {
 	say 'searching for latest checklist';
 
 	#timegm();
-	
 
 	# get current datetime for reference
 	my $now_date = ParseDate( 'epoch ' . time );
@@ -1548,8 +1545,7 @@ sub refresh_dis {
 				if ( $trans_offset == -1 ) {
 					$cmp_result = -1;
 					$cmp_result = comp_offsets( $trans_offset, $offset );
-				}
-				else {
+				} else {
 				}
 
 			# filter earlier/later feed dates out, still waiting on them
@@ -1602,14 +1598,12 @@ sub refresh_dis {
 				# possibly just not recvd yet
 				elsif ( $cmp_result == -1 ) {
 					say "waiting on $name, last trans: $exec_end";
-				}
-				else {
+				} else {
 					warn
 						"\tFAILED transaction offset sanity check: $name $$offset\n";
 					next;
 				}
-			}
-			else {
+			} else {
 				warn
 					"\tno transactions found for $name : feed_id = $feed_id\n";
 				next;
@@ -1659,14 +1653,12 @@ sub refresh_legacy {
 			for ( my $col = $col_min; $col <= $col_max; $col++ ) {
 				my $cell = $worksheet->get_cell( $row, $col );
 				unless ( extract_row_daemon( $col, $cell, $row_data ) ) {
-				}
-				else {
+				} else {
 					if (    $row_data->{time_block}
 						 && $sched_block ne $row_data->{time_block} )
 					{
 						$sched_block = $row_data->{time_block};
-					}
-					else {
+					} else {
 						$row_data->{time_block} = $sched_block;
 					}
 				}
@@ -1700,13 +1692,11 @@ sub refresh_legacy {
 				next;
 			}
 
-
 			my ( $trans_ts, $trans_offset ) = ( 0, -1 );
 			if ( $row_data->{filedate} && $row_data->{filenum} ) {
 				$trans_ts = lookup_update( $row_data->{filedate},
 										   $row_data->{filenum} );
-				$trans_offset
-					= $trans_ts ? datetime2offset($trans_ts) : -1;
+				$trans_offset = $trans_ts ? datetime2offset($trans_ts) : -1;
 
 			}
 
@@ -1762,8 +1752,7 @@ sub refresh_legacy {
 								  filenum      => ''
 								}
 				);
-			}
-			else {
+			} else {
 				warn
 					"\tFAILED transaction offset sanity check: $name $sched_offset\n";
 				next;
@@ -1847,9 +1836,11 @@ sub redirect_stderr {
 
 sub usage {
 	my ($exit_val) = @_;
-	pod2usage( { -verbose => $cfg->verbosity,
-				 -exit    => $exit_val || 0
-			   }
+	pod2usage(
+		{ -input   => 'Docs/usage.pod',
+		  -verbose => $cfg->verbosity,
+		  -exit    => $exit_val || 0
+		}
 	);
 }
 
@@ -1875,155 +1866,3 @@ sub clear_schedule {
 	return $dbh_sched->do('delete from [TQASched].dbo.[Update_Schedule]')
 		or die "error in clearing Schedule table\n", $dbh_sched->errstr;
 }
-
-=pod
-
-=head1 NAME
-
-TQASched - a module for monitoring both legacy and DIS feed timeliness using AUH metadata
-
-=head1 SYNOPSIS
-
-perl TQASched.pm [optional flags]
-
-=head1 DESCRIPTION
-
-AUH content schedule monitoring module
-the module itself contains all utility functions for this application
-however, only really needs to be called directly to initialize app database and do testing
-
-capable of running all or in part the sub-scripts which support the application:
-
-=over 4
-
-=item F<Server/server.pl>
-
-HTTP server script which serves the report and any other files
-
-=item F<Daemon/daemon.pl>
-
-daemon which cyclicly compares AUH metadata against scheduling rules and updates TQASched db accordingly
-
-=item F<Server/report.pl>
-
-script which dynamically generates the web application interface HTML 
-
-=back
-
-=head3 COMPONENTS:
-
-=over 4 
-
-=item B<server>
-
-start/debug http server (and by extension, the report)
-	
-=item B<daemon>
-
-start/debug scheduling daemon
-	
-=item B<report>
-
-generate report snapshot without running the server
-  
-=back
-
-=head1 OPTIONS
-
-=over 6
-
-=item B<-c --create-db>
-
-create database from scratch
-
-=item B<-d --start_daemon>
-
-fork the scheduling monitoring daemon script after startup
-
-=item B<-f --config-file>=I<configpath>
-
-specify path for config file in the command line
-defaults to TQASched.conf in current dir
-
-=item B<-h --help --version>
-
-print this manpage and exit
-
-=item B<-i --init_sched> 
-
-initialize schedule from master spreadsheet
-
-=item B<-l --logging>
-
-logging toggle, on/off
-
-=item B<-p --port>=I<portnumber>
-
-specify port the server hosts the web application on
-
-=item B<-s --start_server>
-
-fork the http server script to begin hosting the report script
-
-=back
-
-=head1 FILES
-
-=over 6
-
-=item F<TQASched.pm>
-
-this self-documented module, you're reading the manpage for it right now! 
-refer to the rest of the documentation for usage and configuration details
-
-=item F<TQASched.conf>
-
-C<.ini> style config file primarily for the database credentials but is capable of setting any other configuration variables as well
-
-=item F<Daemon/daemon.pl>
-
-daemon which cyclicly compares AUH metadata against scheduling rules and updates TQASched db accordingly
-daemon logs can be found in this subdirectory
-
-=item F<Server/server.pl>
-
-server script (also a daemon in its own right)
-hosts the output of the report file - the HTML webapp frontend
-also hosts various static files (css, js, generated xls files, etc.)
-server logs can be found in this subdirectory
-
-=item F<Server/report.pl>
-
-report script which dynamically generates HTML web application content based on the TQASched db
-report logs can be found in this subdirectory
-
-=item F<TQA_Update_Schedule.xls>
-
-master schedule checklist Excel spreadsheet
-this is used for either initializing the TQASched database
-or for adding new scheduling content
-parsing requires that the syntax of this document is strict so leave no trace 
-unless you know what you're doing - adding content row(s)
-removing content rows is not implemented yet and will have no effect on the db
-
-=item F<//E<lt>network.pathE<gt>/DailyChecklist_E<lt>daterangeE<gt>.xls>
-
-the operator checklist Excel spreadsheet for legacy content
-new sheets automatically generated in the network path by the daemon on weekly basis
-network path is generally set in configs
-date range in the filename is calculated
-strict formatting must be maintained in this file so that it may be parsed properly by the daemon
-
-=back
-
-=head1 AUTHOR
-
-Matt Shockley
-
-=head1 COPYRIGHT AND LICENSE
-Copyright 2012 Matt Shockley
-
-This program is free software; you can redistribute it and/or modify 
-it under the same terms as Perl itself.
-
-=cut

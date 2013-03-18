@@ -391,7 +391,7 @@ sub slay_children {
 sub daemon {
 	my $daemon_pid;
 	unless ( $daemon_pid = fork ) {
-		exec( 'Daemon/daemon.pl', @CLI );
+		exec('./Daemon/daemon.pl', @CLI );
 	}
 	return $daemon_pid;
 }
@@ -773,25 +773,34 @@ sub offset_before {
 # compares two GMT offsets (perceived trans time vs scheduled time)
 # TODO: intelligently handle week boundary
 sub comp_offsets {
-	my ( $trans_offset, $sched_offset ) = @_;
+	my ( $trans_offset, $sched_offset, $is_weekend ) = @_;
 
 	# get seconds difference
 	my $offset_diff = $trans_offset - $sched_offset;
 
-	# if the difference is greater than the allowed lateness... mark as late
-	if ( $offset_diff > $cfg->late_threshold ) {
+	#say "offsetdiff: $offset_diff";
 
+	# if the difference is greater than the allowed lateness... mark as late
+	# do an extra check for week rollovers
+	if ( $offset_diff > $cfg->late_threshold) {
+		# this is a weekly rollover, do comparison differently
+		# subtract 4 or 5 days
+#		if ($offset_diff > 400000 ) {
+#			74899
+#			$offset_diff -= 345600;
+#		}
 		# return late
 		return 1;
 	}
 
 	# early but not more than a day ago or within acceptable late threshold
-	elsif ( $offset_diff < $cfg->late_threshold && $offset_diff > -86400 ) {
+	elsif ( $offset_diff < $cfg->late_threshold && ($offset_diff > -86400 || $is_weekend) ) {
 		return 0;
 	}
 
 	# otherwise we're still waiting
 	else {
+		say $offset_diff;
 		return -1;
 	}
 }
@@ -861,6 +870,49 @@ sub sender2dbh {
 	}
 }
 
+# return UPD date based on current date
+sub upd_date {
+	my ($now_date) = @_;
+	unless ( defined $now_date ) {
+		$now_date = now_date();
+	}
+	my ( $year, $month, $mday ) = parse_filedate($now_date);
+	my $time_arg = timegm( 0, 0, 0, $mday, $month - 1, $year - 1900 )
+		or die "[1]\tupd_date() failed for: $now_date\n";
+
+	# get DOW
+	my ($wday) = ( gmtime($time_arg) )[6];
+
+	# weekends use Friday's UPD
+	# fastest way to get
+	#	sat
+	if ( $wday == 6 ) {
+		$time_arg -= 86400;
+	}
+
+	#	sun
+	elsif ( $wday == 0 ) {
+		$time_arg -= 172800;
+	}
+
+	#	mon
+	elsif ( $wday == 1 ) {
+		$time_arg -= 259200;
+	}
+
+	# all other days use previous date
+	else {
+		$time_arg -= 86400;
+	}
+
+	# convert back to YYYYMMDD format
+	( $year, $month, $mday ) = gmtime($time_arg)
+		or die "[2]\tupd_date() failed for: $time_arg\n";
+
+	# zero pad month and day
+	return sprintf( '%u%02u%02u', $year, $month, $mday );
+}
+
 # store/modify update history entry
 sub update_history {
 	my $hashref = shift;
@@ -871,7 +923,7 @@ sub update_history {
 			$hashref->{filedate},     $hashref->{filenum},
 			$hashref->{transnum}
 		);
-
+	#say "( $update_id, $sched_id, $trans_offset, $late_q, $fd_q, $fn_q )";
 	# if there was a trasnum some things need to be done:
 	my $select_trans_num = '';
 	if ($trans_num) {
@@ -934,7 +986,7 @@ sub update_history {
 		";
 
 		#say $insert_hist;
-		$dbh_sched->do($insert_hist);
+		$dbh_sched->do($insert_hist) or warn "could not insert!!!\n";
 	}
 
 	# otherwise, it is late and has no filedate filenum, insert
@@ -944,6 +996,7 @@ sub update_history {
 			values
 			($update_id, $sched_id, $trans_offset, NULL, NULL, GetUTCDate(), '$late_q', NULL)
 		";
+		$dbh_sched->do($insert_hist) or warn "could not insert!!!\n";
 	}
 
 }
@@ -1416,7 +1469,7 @@ sub refresh_dis {
 
 		# iterate over each of them and determine if they are completed
 		for my $update_aref ( @{$updates_aref} ) {
-
+			my $trans_offset;
 			# extract update info
 			my ( $feed_id, $name, $offset, $sched_id, $update_id )
 				= @{$update_aref};
@@ -1474,9 +1527,7 @@ sub refresh_dis {
 
 				$backdate_updates
 					= $dbh_sched->selectall_arrayref($backdate_query);
-
 				my $dbh_dis = sender2dbh($sender);
-
 				# retrieve last transaction number for this build number
 				my $dis_trans = "
 				select top 1 DISTransactionNumber
@@ -1488,30 +1539,63 @@ sub refresh_dis {
 				order by FeedDate desc
 			";
 				my ($trans_num) = $dbh_dis->selectrow_array($dis_trans);
-				unless ($trans_num) {
+				if (!$trans_num) {
 					warn
-						"\tno transaction # found for enum feed $name, $sender skipping\n";
+						"\t[1] no transaction # found for enum feed $name, skipping\n$dis_trans\n";
 					next;
 				}
 
 				# select this transaction from TQALic
 				# to get AUH process time, along with filenum and filedate
 				my $transactions = "
-				select top 1 Status, BuildTime, FileDate, FileNum, Sender, TransactionNumber, BuildTime, FeedDate 
+				select top 1 Status, BuildTime, FileDate, FileNum, Sender, TransactionNumber, DateDiff(dd, [BuildTime], GETUTCDATE()), FeedDate 
 				from [TQALic].dbo.[PackageQueue] 
 				with (NOLOCK)
 				where TaskReference LIKE '%$feed_id%'
 				and TransactionNumber = $trans_num
-				and DateDiff(dd, [BuildTime], GETUTCDATE()) < 1.5
+			--	and DateDiff(dd, [BuildTime], GETUTCDATE()) < 1.5
 				order by FeedDate desc
 			";
 				(  $status, $exec_end, $fd, $fn, $sender, $trans_num,
 				   $build_time, $feed_date
 					)
-					= $dbh_prod1->selectrow_array($transactions)
-					or warn
-					"\tno transaction # found for enum feed $name, $sender skipping\n\n"
-					and next;
+					= $dbh_prod1->selectrow_array($transactions);
+#					or warn
+#					"\t[2] no transaction # found for enum feed $name, $sender skipping\n$transactions\n"
+#					and next;
+				if ($build_time < 1.1) {
+					# this is an empty update, should be marked as such
+					if (!$fd) {
+						say "this was an empty update: $name";
+						update_history( { update_id    => $update_id,
+									  sched_id     => $sched_id,
+									  trans_offset => -1,
+									  late         => 'N',
+									  filedate     => 'NULL',
+									  filenum      => 'NULL',
+									  transnum     => $trans_num
+									}
+						);
+						next;
+					}
+				}
+				# monday is special
+				elsif ($current_wd == 1 && $offset < 129600) {
+					#say 'fixing for monday';
+					$trans_offset = datetime2offset($exec_end);
+					my $fut_flag = int( $trans_offset / 86400 );
+					$trans_offset -= $fut_flag * 86400;
+					#say $trans_offset;
+				}
+				else {
+					warn "marking $name wait on a monday";
+					$trans_offset = -1;
+				}
+#				else {
+#					say "this is an old update: $name";
+#					$trans_offset = datetime2offset($exec_end) % 86400;
+#					
+#				}
 
 			}
 
@@ -1541,15 +1625,16 @@ sub refresh_dis {
 			#}
 
 				# compare transaction execution time to schedule offset
-				my $trans_offset = datetime2offset($exec_end);
+				$trans_offset ||= datetime2offset($exec_end);
 				my $cmp_result;
 				if ( $trans_offset == -1 ) {
 					$cmp_result = -1;
-					$cmp_result = comp_offsets( $trans_offset, $offset );
+					#$cmp_result = comp_offsets( $trans_offset, $offset );
 				}
 				else {
+					$cmp_result = comp_offsets( $trans_offset, $offset, ($current_wd == 1) );
 				}
-
+				#say "result: $cmp_result";
 			# filter earlier/later feed dates out, still waiting on them
 			#				if ($feed_date =~ m/(\d+)-(\d+)-(\d+)/) {
 			#					my $parsed_fd = ParseDate($feed_date);
@@ -1677,7 +1762,8 @@ sub refresh_legacy {
 			my $name      = $row_data->{update};
 			my $update_id = get_update_id($name);
 			unless ($update_id) {
-				die "could not find update ID for $name";
+				warn "could not find update ID for $name";
+				next;
 			}
 
 			my $sched_query = "
@@ -1698,36 +1784,41 @@ sub refresh_legacy {
 				next;
 			}
 
-
-			my ( $trans_ts, $trans_offset ) = ( 0, -1 );
+			my ( $trans_ts, $trans_offset, $trans_num ) = ( 0, -1, -1 );
 			if ( $row_data->{filedate} && $row_data->{filenum} ) {
-				$trans_ts = lookup_update( $row_data->{filedate},
+				($trans_ts, $trans_num) = lookup_update( $row_data->{filedate},
 										   $row_data->{filenum} );
 				$trans_offset
 					= $trans_ts ? datetime2offset($trans_ts) : -1;
 
 			}
-
+			
 			# compare transaction execution time to schedule offset
 			# GMT now		# GMT sched
-			my $cmp_result
-				= $trans_offset == -1
-				? comp_offsets( $trans_offset, $sched_offset )
-				: -1;
+			my $cmp_result; 
+			if ($trans_offset == -1) {
+				$cmp_result = -1;
+			}
+			else {
+				$cmp_result = comp_offsets( $trans_offset, $sched_offset );
+			}
+			
+			#say $row_data->{update}, 			$row_data->{filedate};
 
 			#my $cmp_result = comp_offsets( $trans_offset, $sched_offset );
 
 			# if it's within an hour of the scheduled time, mark as on time
 			# could also be early
 			if ( $cmp_result == 0 ) {
-
+			#	say "$update_id $name $trans_ts $trans_offset $sched_offset $cmp_result" if $trans_ts;
 				#say "ontime $name $trans_offset offset: $sched_offset";
 				update_history( { update_id    => $update_id,
 								  sched_id     => $sched_id,
 								  trans_offset => $trans_offset,
 								  late         => 'N',
 								  filedate     => $row_data->{filedate},
-								  filenum      => $row_data->{filenum}
+								  filenum      => $row_data->{filenum},
+								  transnum => $trans_num,
 								}
 				);
 			}
@@ -1775,15 +1866,15 @@ sub lookup_update {
 	my ( $filedate, $filenum ) = @_;
 
 	my $select_fdfn_query = "
-		select ProcessTime
-		from [TQALic].[dbo].[PackageTasks]
+		select ProcessTime, TransactionNumber
+		from [TQALic].[dbo].[PackageQueue]
 		where FileDate = '$filedate'
 		and FileNum= '$filenum'
-		and Status1 = 100 and Status2 = 100
+		--and Status1 = 100 and Status2 = 100
 	";
-	my ($fdfn_ts) = ( $dbh_prod1->selectrow_array($select_fdfn_query) );
+	my ($fdfn_ts, $trans_num) = ( $dbh_prod1->selectrow_array($select_fdfn_query) );
 
-	return $fdfn_ts if defined $fdfn_ts;
+	return ($fdfn_ts, $trans_num) if defined $fdfn_ts;
 	return;
 
 }

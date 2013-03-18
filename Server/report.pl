@@ -201,6 +201,8 @@ sub print_table {
 	  on d.update_id = u.update_id
 	  where weekday = $wd
       and u.update_id = us.update_id
+      and d.feed_id NOT LIKE 'FIEJV%'
+      and d.feed_id NOT LIKE 'RDC%'
       $filter
       order by sched_epoch, name asc
 	";
@@ -265,9 +267,9 @@ sub row_info {
 	my ( $status, $daemon_ts, $recvd_time, $update );
 	if ($hist_id) {
 		$status     = $late eq 'N' ? 'recv' : 'late';
-		$recvd_time = offset2time($hist_offset);
+		$recvd_time = $filedate? offset2time($hist_offset) : 'N/A';
 		$daemon_ts  = $hist_ts;
-		$update     = "$filedate-$filenum";
+		$update     = $filedate ? "$filedate-$filenum" : 'N/A';
 	}
 
 	# no history record, still waiting
@@ -314,7 +316,7 @@ sub get_wd {
 
 sub offset2time {
 	my $offset = shift;
-
+	my $orig_offset = $offset;
 	# first drop the day portion of the offset
 	my $wd         = get_wd();
 	my $day_offset = $wd * 86400;
@@ -343,10 +345,10 @@ sub offset2time {
 
 # if offset is negative at this point, then it happened before the scheduled/current day
 	if ( $offset < 0 ) {
+		my $into_previous = $orig_offset;
 		$past_flag++;
-
 		# rewind into previous day
-		my $into_previous = 86400 + $offset;
+		#my $into_previous = 86400 + $offset;
 		$hours = int( $into_previous / 3600 );
 		$into_previous -= $hours * 3600;
 		$minutes = int( $into_previous / 60 );

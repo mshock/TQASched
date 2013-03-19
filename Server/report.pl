@@ -117,6 +117,7 @@ sub print_thead {
 
 	say "
 <form method='GET'>
+	<input type='hidden' name='date' value='$dbdate'>
 	<table cellspacing='0' width='100%' border=0>
 		<thead>
 			<tr>
@@ -350,7 +351,9 @@ sub offset2time {
 		# rewind into previous day
 		#my $into_previous = 86400 + $offset;
 		$hours = int( $into_previous / 3600 );
+		
 		$into_previous -= $hours * 3600;
+		$hours -= 24 if $hours >= 24;
 		$minutes = int( $into_previous / 60 );
 	}
 

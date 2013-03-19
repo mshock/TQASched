@@ -391,7 +391,7 @@ sub slay_children {
 sub daemon {
 	my $daemon_pid;
 	unless ( $daemon_pid = fork ) {
-		exec('./Daemon/daemon.pl', @CLI );
+		exec('Daemon/daemon.pl', @CLI );
 	}
 	return $daemon_pid;
 }
@@ -1517,7 +1517,7 @@ sub refresh_dis {
 					on u.update_id = us.update_id
 				left join tqasched.dbo.update_history uh
 					on uh.sched_id = us.sched_id
-				--	and DateDiff(dd, [timestamp], GETUTCDATE()) < 1
+					and DateDiff(dd, [timestamp], GETUTCDATE()) < 1
 				where us.weekday = $current_wd
 				and uh.transnum = $trans_num
 				and u.name LIKE '$stripped_name%'
@@ -1553,7 +1553,7 @@ sub refresh_dis {
 				with (NOLOCK)
 				where TaskReference LIKE '%$feed_id%'
 				and TransactionNumber = $trans_num
-			--	and DateDiff(dd, [BuildTime], GETUTCDATE()) < 1.5
+				and DateDiff(dd, [BuildTime], GETUTCDATE()) < 1.5
 				order by FeedDate desc
 			";
 				(  $status, $exec_end, $fd, $fn, $sender, $trans_num,

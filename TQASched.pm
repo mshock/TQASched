@@ -691,6 +691,15 @@ sub get_sched_id {
 	return \@scheds;
 }
 
+# returns the wday for tomorrow - refresh_dis rollover fix
+sub get_tomorrow_wday {
+	my ( $tyear, $tmonth, $tday ) = @_;
+	my $time = timegm( 0, 0, 0, $tday, $tmonth - 1, $tyear - 1900 );
+	my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst )
+		= gmtime( $time + 86400 );
+	return $wday;
+}
+
 # returns code for current weekday
 sub now_wd {
 	my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst )
@@ -938,7 +947,7 @@ sub update_history {
 	" );
 
 	# recvd already, return
-	if ( $fd && $fn || (defined $late && $late eq 'E')) {
+	if ( $fd && $fn || ( defined $late && $late eq 'E' ) ) {
 		say "\talready stored $update_id";
 		return;
 	}
@@ -1539,16 +1548,12 @@ sub refresh_dis {
 				
 				order by FeedDate desc
 			";
-				my ( $trans_num, $dis_feed_date, $feed_status )
+				my ( $trans_num, $dis_feed_date, $dis_feed_status )
 					= $dbh_dis->selectrow_array($dis_trans);
 				if ( !$trans_num ) {
 					warn
 						"\t[1] no transaction # found for enum feed $name, skipping\n$dis_trans\n";
 					next;
-				}
-				# not complete, wait
-				elsif (!$feed_status) {
-					
 				}
 
 				# select this transaction from TQALic
@@ -1575,7 +1580,7 @@ sub refresh_dis {
 					= ( $dis_feed_date =~ m/(\d+)-(\d+)-(\d+)/ );
 
 				# this is an empty update, should be marked as such
-				if ( !$fd ) {
+				if ( !$fd && $status ) {
 
 					say "this was an empty update: $name";
 					update_history( { update_id    => $update_id,
@@ -1590,29 +1595,37 @@ sub refresh_dis {
 					next;
 				}
 
+				# not done processing, mark as wait
+				elsif ( !$status ) {
+					$trans_offset = -1;
+				}
+
 # verify that feed dates match the target date, otherwise this is still wait or late, don't mark empty
-				elsif ( !(    $feed_year == $tyear
-						   && $feed_mon == $tmonth
-						   && $feed_day == $tday
-						)
-						
+				elsif (
+					!(     $feed_year == $tyear
+						&& $feed_mon == $tmonth
+						&& $feed_day == $tday
+					)
+
 					)
 				{
-					if (( $offset % 86400 ) < 16200) {
-						say "\t\t$name build from yesterday, pass through feed date check"
-					}
-					else {
+					if ( ( $offset % 86400 ) < 16200 ) {
+
 						say
-						"\t\t$name build not yet processed for this feed date?";
+							"\t\t$name build from yesterday, pass through feed date check";
+
+					} else {
+						say
+							"\t\t$name build not yet processed for this feed date";
+
 						#say $transactions;
 						#say $dis_trans;
 						#$trans_offset = -1;
 					}
-					
 
 #say "\t\t$name $dis_feed_date ($feed_date) does not match $tyear $tmonth $tday";
 #say "$transactions";
-					
+
 				}
 
 			  # monday is special
@@ -1635,7 +1648,31 @@ sub refresh_dis {
 				#					$trans_offset = datetime2offset($exec_end) % 86400;
 				#
 				#				}
+				elsif ( (    $feed_year == $tyear
+						  && $feed_mon == $tmonth
+						  && $feed_day == $tday
+						)
+						&& ( ( $offset % 86400 ) < 16200 )
+					)
+				{
 
+				  # to prevent overwriting feeds from the beginning of the day
+				  # set to sched_id for the next day for this update
+					my $tomorrow_wd
+						= get_tomorrow_wday( $tyear, $tmonth, $tday );
+
+					my $get_tomorrow_query = "
+		select us.sched_epoch, us.sched_id
+		from 
+			TQASched.dbo.Update_Schedule us,
+			TQASched.dbo.Updates u
+		where u.update_id = us.update_id
+		and us.weekday = $tomorrow_wd
+		and u.update_id = $update_id
+		";
+					( $offset, $sched_id )
+						= $dbh_sched->selectrow_array($get_tomorrow_query);
+				}
 			}
 
 			# handle annoying FIEJV feeds not being enumerated
@@ -1725,7 +1762,7 @@ sub refresh_dis {
 
 				# possibly just not recvd yet
 				elsif ( $cmp_result == -1 ) {
-					say "waiting on $name, last trans: $exec_end";
+					say "waiting/passing on $name, last trans: $exec_end";
 				} else {
 					warn
 						"\tFAILED transaction offset sanity check: $name $$offset\n";

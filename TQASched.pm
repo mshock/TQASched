@@ -2,7 +2,6 @@
 
 package TQASched;
 
-
 # TODO switch log handling to log4perl
 
 use strict;
@@ -153,8 +152,7 @@ sub execute_tasks {
 					 logfile => $cfg->log
 				   }
 		);
-	}
-	else {
+	} else {
 
 		# TODO: set the USR1 signal handler - for cleanly exiting
 		# print out some nice info
@@ -391,7 +389,7 @@ sub slay_children {
 sub daemon {
 	my $daemon_pid;
 	unless ( $daemon_pid = fork ) {
-		exec('Daemon/daemon.pl', @CLI );
+		exec( 'Daemon/daemon.pl', @CLI );
 	}
 	return $daemon_pid;
 }
@@ -424,8 +422,7 @@ sub extract_row_init {
 		when (/^0$/) {
 			if ($value) {
 				$row_href->{cst_clock} = $value;
-			}
-			else {
+			} else {
 
 				#warn "no value found in column 0 (CST)\n";
 				return;
@@ -436,8 +433,7 @@ sub extract_row_init {
 		when (/^1$/) {
 			if ($value) {
 				$row_href->{sched_epoch} = time2offset($value);
-			}
-			else {
+			} else {
 
 				#warn "no value found in column 1 (GMT)\n";
 				return;
@@ -448,8 +444,7 @@ sub extract_row_init {
 		when (/^2$/) {
 			if ($value) {
 				$row_href->{update} = $value;
-			}
-			else {
+			} else {
 
 				#warn "no value found for column 2 (update)\n";
 				return;
@@ -460,8 +455,7 @@ sub extract_row_init {
 		when (/^3$/) {
 			if ($value) {
 				$row_href->{feed_id} = $value;
-			}
-			else {
+			} else {
 
 				#warn "no value found for column 3 (feed id)\n";
 				return;
@@ -473,17 +467,14 @@ sub extract_row_init {
 			if ($value) {
 				if ( $value =~ m/legacy/i ) {
 					$row_href->{is_legacy} = 1;
-				}
-				elsif ( $value =~ m/dis/i ) {
+				} elsif ( $value =~ m/dis/i ) {
 					$row_href->{is_legacy} = 0;
-				}
-				else {
+				} else {
 
 					#warn "unrecognized value in column 4 (legacy flag)\n";
 					return;
 				}
-			}
-			else {
+			} else {
 
 				#warn "no value found for column 4 (legacy flag)\n";
 				return;
@@ -494,8 +485,7 @@ sub extract_row_init {
 		when (/^5$/) {
 			if ( defined $value ) {
 				$row_href->{priority} = $value;
-			}
-			else {
+			} else {
 
 				#warn "no value found for column 5 (priority)\n";
 				return;
@@ -507,8 +497,7 @@ sub extract_row_init {
 		when (/^6$/) {
 			if ($value) {
 				$row_href->{days} = $value;
-			}
-			else {
+			} else {
 
 				#warn "no value found for column 6 (day/s of week)\n";
 				return;
@@ -782,19 +771,22 @@ sub comp_offsets {
 
 	# if the difference is greater than the allowed lateness... mark as late
 	# do an extra check for week rollovers
-	if ( $offset_diff > $cfg->late_threshold) {
+	if ( $offset_diff > $cfg->late_threshold ) {
+
 		# this is a weekly rollover, do comparison differently
 		# subtract 4 or 5 days
-#		if ($offset_diff > 400000 ) {
-#			74899
-#			$offset_diff -= 345600;
-#		}
+		#		if ($offset_diff > 400000 ) {
+		#			74899
+		#			$offset_diff -= 345600;
+		#		}
 		# return late
 		return 1;
 	}
 
 	# early but not more than a day ago or within acceptable late threshold
-	elsif ( $offset_diff < $cfg->late_threshold && ($offset_diff > -86400 || $is_weekend) ) {
+	elsif ( $offset_diff < $cfg->late_threshold
+			&& ( $offset_diff > -86400 || $is_weekend ) )
+	{
 		return 0;
 	}
 
@@ -838,11 +830,9 @@ sub sender2dbh {
 			my $tt_server = $1;
 			if ( $tt_server == 3 ) {
 				$server = 4;
-			}
-			elsif ( $tt_server == 5 ) {
+			} elsif ( $tt_server == 5 ) {
 				$server = 5;
-			}
-			else {
+			} else {
 				warn "unrecognized TINTRIN server: $sender\n";
 			}
 		}
@@ -850,13 +840,11 @@ sub sender2dbh {
 		# PROD01 - special updates, I guess
 		elsif ( $sender =~ m/TQAPROD01/ ) {
 			return $dbh_prod1;
-		}
-		else {
+		} else {
 			warn
 				"sanity check failed on DIS sender $sender, unable to match server\n";
 		}
-	}
-	else {
+	} else {
 		warn "DIS feed sender $sender somehow not sent from DIS1\n";
 	}
 
@@ -923,6 +911,7 @@ sub update_history {
 			$hashref->{filedate},     $hashref->{filenum},
 			$hashref->{transnum}
 		);
+
 	#say "( $update_id, $sched_id, $trans_offset, $late_q, $fd_q, $fn_q )";
 	# if there was a trasnum some things need to be done:
 	my $select_trans_num = '';
@@ -949,16 +938,15 @@ sub update_history {
 	" );
 
 	# recvd already, return
-	if ( $fd && $fn ) {
-
-		#say "already stored $update_id : $sched_id";
+	if ( $fd && $fn || (defined $late && $late eq 'E')) {
+		say "\talready stored $update_id";
 		return;
 	}
 
 # already an entry in history (late), update with newly found filedate filenum
 	elsif ( defined $hist_id && ( $fd_q && $fn_q ) && ( !$fd || !$fn ) ) {
 
-		#say "$update_id updating";
+		say "\t$update_id updating";
 		$dbh_sched->do( "
 			update TQASched.dbo.Update_History
 			set filedate = $fd_q, filenum = $fn_q, transnum = $trans_num 
@@ -970,7 +958,8 @@ sub update_history {
 	# not recvd and never seen, insert new record w/ filedate and filenum
 	elsif ( !$hist_id && $fd_q && $fn_q ) {
 
-		#say "$update_id inserting";
+		say "\t$update_id inserting (found)";
+
 		# if skipped, change status for insert
 		if ( $fd_q =~ m/skipped/i || $fn_q =~ m/skipped/i ) {
 			( $fd_q, $fn_q ) = ( 0, 0 );
@@ -989,12 +978,14 @@ sub update_history {
 		$dbh_sched->do($insert_hist) or warn "could not insert!!!\n";
 	}
 
-	# otherwise, it is late and has no filedate filenum, insert
+	# otherwise, it is late/wait and has no filedate filenum, insert
 	else {
+		say "\t$update_id inserting (not found)";
+		$trans_num = 'NULL' if $trans_num != -1;
 		my $insert_hist = "
 			insert into TQASched.dbo.Update_History 
 			values
-			($update_id, $sched_id, $trans_offset, NULL, NULL, GetUTCDate(), '$late_q', NULL)
+			($update_id, $sched_id, $trans_offset, NULL, NULL, GetUTCDate(), '$late_q', $trans_num)
 		";
 		$dbh_sched->do($insert_hist) or warn "could not insert!!!\n";
 	}
@@ -1073,11 +1064,11 @@ sub load_conf {
 
 # first pass at CLI args, mostly checking for config file setting (note - consumes @ARGV)
 	$cfg->getopt();
-	my $cfg_path = (defined $relative_path ? "$relative_path/" : '' )
-				. $cfg->config_file();
-	
+	my $cfg_path = ( defined $relative_path ? "$relative_path/" : '' )
+		. $cfg->config_file();
+
 # parse config file for those vivacious variables and their rock steady, dependable values
-	$cfg->file( $cfg_path );
+	$cfg->file($cfg_path);
 
 	# second pass at CLI args, they take precedence over config file
 	$cfg->getopt( \@CLI );
@@ -1086,6 +1077,17 @@ sub load_conf {
 		= map { get_handle_hash($_) } qw(sched_db auh_db prod1_db 1 2 3 4 5);
 
 	return $cfg;
+}
+
+# parse YYYYMMDD into (y,m,d)
+sub parse_filedate {
+	my ($filedate) = @_;
+	if ( my ( $year, $month, $mday )
+		 = ( $filedate =~ m/(\d{4})(\d{2})(\d{2})/ ) )
+	{
+		return ( $year, $month, $mday );
+	}
+	return;
 }
 
 # handle any errors in AppConfig parsing - namely log them
@@ -1150,8 +1152,7 @@ sub offset_weekdays {
 				$first_int++;
 			}
 
-		}
-		elsif ( $first_int > $second_int ) {
+		} elsif ( $first_int > $second_int ) {
 			while (1) {
 				push @offsets,
 					[ $first_int * $day_increment + $sched_offset, $first_int
@@ -1164,8 +1165,7 @@ sub offset_weekdays {
 				}
 			}
 
-		}
-		else {
+		} else {
 			warn
 				"failed sanity check: $first_date:$first_int $second_date:$second_int\n";
 			return;
@@ -1204,8 +1204,7 @@ sub offset_weekdays {
 					];
 				$first_int++;
 			}
-		}
-		elsif ( $first_int > $second_int ) {
+		} elsif ( $first_int > $second_int ) {
 			while (1) {
 				push @offsets,
 					[ $first_int * $day_increment + $sched_offset, $first_int
@@ -1218,8 +1217,7 @@ sub offset_weekdays {
 				}
 			}
 		}
-	}
-	else {
+	} else {
 		warn "unable to parse $days date range\n";
 		return;
 	}
@@ -1272,8 +1270,7 @@ sub create_db {
 			}
 		);
 		return 1;
-	}
-	elsif ( !$cfg->force_create ) {
+	} elsif ( !$cfg->force_create ) {
 		say 'not found,';
 		write_log( { logfile => $cfg->log,
 					 type    => 'INFO',
@@ -1358,13 +1355,15 @@ sub check_db {
 
 # get latest schedule checklist
 sub find_sched {
+
 	# optional argument to refresh specific spreadsheet file
-	my ($year, $month, $mday) = @_;
-	
-	if (defined $year) {
-#		 = timegm($sec,$min,$hour,$mday,$mon,$year);
+	my ( $year, $month, $mday ) = @_;
+
+	if ( defined $year ) {
+
+		#		 = timegm($sec,$min,$hour,$mday,$mon,$year);
 	}
-	
+
 # old method, finds the youngest file and matches the date range (good for transition)
 #return find_youngest_sched();
 
@@ -1377,7 +1376,6 @@ sub find_sched {
 	say 'searching for latest checklist';
 
 	#timegm();
-	
 
 	# get current datetime for reference
 	my $now_date = ParseDate( 'epoch ' . time );
@@ -1470,6 +1468,8 @@ sub refresh_dis {
 		# iterate over each of them and determine if they are completed
 		for my $update_aref ( @{$updates_aref} ) {
 			my $trans_offset;
+			my ( $feed_year, $feed_mon, $feed_day );
+
 			# extract update info
 			my ( $feed_id, $name, $offset, $sched_id, $update_id )
 				= @{$update_aref};
@@ -1485,7 +1485,7 @@ sub refresh_dis {
 			from [TQALic].dbo.[PackageQueue] 
 			with (NOLOCK)
 			where TaskReference LIKE '%$feed_id%'
-			order by FeedDate desc
+			order by TransactionNumber desc
 		";
 
 			my ( $status, $exec_end, $fd, $fn, $sender, $trans_num,
@@ -1517,7 +1517,7 @@ sub refresh_dis {
 					on u.update_id = us.update_id
 				left join tqasched.dbo.update_history uh
 					on uh.sched_id = us.sched_id
-					and DateDiff(dd, [timestamp], GETUTCDATE()) < 1
+				--	and DateDiff(dd, [timestamp], GETUTCDATE()) < 1
 				where us.weekday = $current_wd
 				and uh.transnum = $trans_num
 				and u.name LIKE '$stripped_name%'
@@ -1528,9 +1528,10 @@ sub refresh_dis {
 				$backdate_updates
 					= $dbh_sched->selectall_arrayref($backdate_query);
 				my $dbh_dis = sender2dbh($sender);
+
 				# retrieve last transaction number for this build number
 				my $dis_trans = "
-				select top 1 DISTransactionNumber
+				select top 1 DISTransactionNumber, FeedDate, Status
 				from DataIngestionInfrastructure.dbo.MakeUpdateInfo
 				with (NOLOCK)
 				where BuildNumber = $build_num
@@ -1538,11 +1539,16 @@ sub refresh_dis {
 				
 				order by FeedDate desc
 			";
-				my ($trans_num) = $dbh_dis->selectrow_array($dis_trans);
-				if (!$trans_num) {
+				my ( $trans_num, $dis_feed_date, $feed_status )
+					= $dbh_dis->selectrow_array($dis_trans);
+				if ( !$trans_num ) {
 					warn
 						"\t[1] no transaction # found for enum feed $name, skipping\n$dis_trans\n";
 					next;
+				}
+				# not complete, wait
+				elsif (!$feed_status) {
+					
 				}
 
 				# select this transaction from TQALic
@@ -1553,49 +1559,82 @@ sub refresh_dis {
 				with (NOLOCK)
 				where TaskReference LIKE '%$feed_id%'
 				and TransactionNumber = $trans_num
-				and DateDiff(dd, [BuildTime], GETUTCDATE()) < 1.5
-				order by FeedDate desc
+				--and DateDiff(dd, [BuildTime], GETUTCDATE()) < 1.1
+				order by BuildTime desc
 			";
 				(  $status, $exec_end, $fd, $fn, $sender, $trans_num,
 				   $build_time, $feed_date
-					)
-					= $dbh_prod1->selectrow_array($transactions);
+				) = $dbh_prod1->selectrow_array($transactions);
+
 #					or warn
 #					"\t[2] no transaction # found for enum feed $name, $sender skipping\n$transactions\n"
 #					and next;
-				if ($build_time < 1.1) {
-					# this is an empty update, should be marked as such
-					if (!$fd) {
-						say "this was an empty update: $name";
-						update_history( { update_id    => $update_id,
+				( $feed_year, $feed_mon, $feed_day )
+					= ( $feed_date =~ m/(\d+)-(\d+)-(\d+)/ );
+				my ( $dfeed_year, $dfeed_mon, $dfeed_day )
+					= ( $dis_feed_date =~ m/(\d+)-(\d+)-(\d+)/ );
+
+				# this is an empty update, should be marked as such
+				if ( !$fd ) {
+
+					say "this was an empty update: $name";
+					update_history( { update_id    => $update_id,
 									  sched_id     => $sched_id,
 									  trans_offset => -1,
-									  late         => 'N',
+									  late         => 'E',
 									  filedate     => 'NULL',
 									  filenum      => 'NULL',
 									  transnum     => $trans_num
 									}
-						);
-						next;
-					}
+					);
+					next;
 				}
-				# monday is special
-				elsif ($current_wd == 1 && $offset < 129600) {
+
+# verify that feed dates match the target date, otherwise this is still wait or late, don't mark empty
+				elsif ( !(    $feed_year == $tyear
+						   && $feed_mon == $tmonth
+						   && $feed_day == $tday
+						)
+						
+					)
+				{
+					if (( $offset % 86400 ) < 16200) {
+						say "\t\t$name build from yesterday, pass through feed date check"
+					}
+					else {
+						say
+						"\t\t$name build not yet processed for this feed date?";
+						#say $transactions;
+						#say $dis_trans;
+						#$trans_offset = -1;
+					}
+					
+
+#say "\t\t$name $dis_feed_date ($feed_date) does not match $tyear $tmonth $tday";
+#say "$transactions";
+					
+				}
+
+			  # monday is special
+			  # TODO fix how weekends are handled using upd_date and feed_date
+				elsif ( $current_wd == 1 && $offset < 129600 ) {
+
 					#say 'fixing for monday';
 					$trans_offset = datetime2offset($exec_end);
 					my $fut_flag = int( $trans_offset / 86400 );
 					$trans_offset -= $fut_flag * 86400;
+
 					#say $trans_offset;
-				}
-				else {
-					warn "marking $name wait on a monday";
+				} elsif ( $current_wd == 1 ) {
+					say "\t\tmarking $name wait on a monday";
 					$trans_offset = -1;
 				}
-#				else {
-#					say "this is an old update: $name";
-#					$trans_offset = datetime2offset($exec_end) % 86400;
-#					
-#				}
+
+				#				else {
+				#					say "this is an old update: $name";
+				#					$trans_offset = datetime2offset($exec_end) % 86400;
+				#
+				#				}
 
 			}
 
@@ -1629,12 +1668,14 @@ sub refresh_dis {
 				my $cmp_result;
 				if ( $trans_offset == -1 ) {
 					$cmp_result = -1;
+
 					#$cmp_result = comp_offsets( $trans_offset, $offset );
+				} else {
+					$cmp_result = comp_offsets( $trans_offset, $offset,
+												( $current_wd == 1 ) );
 				}
-				else {
-					$cmp_result = comp_offsets( $trans_offset, $offset, ($current_wd == 1) );
-				}
-				#say "result: $cmp_result";
+
+			#say "result: $cmp_result";
 			# filter earlier/later feed dates out, still waiting on them
 			#				if ($feed_date =~ m/(\d+)-(\d+)-(\d+)/) {
 			#					my $parsed_fd = ParseDate($feed_date);
@@ -1685,14 +1726,12 @@ sub refresh_dis {
 				# possibly just not recvd yet
 				elsif ( $cmp_result == -1 ) {
 					say "waiting on $name, last trans: $exec_end";
-				}
-				else {
+				} else {
 					warn
 						"\tFAILED transaction offset sanity check: $name $$offset\n";
 					next;
 				}
-			}
-			else {
+			} else {
 				warn
 					"\tno transactions found for $name : feed_id = $feed_id\n";
 				next;
@@ -1742,14 +1781,12 @@ sub refresh_legacy {
 			for ( my $col = $col_min; $col <= $col_max; $col++ ) {
 				my $cell = $worksheet->get_cell( $row, $col );
 				unless ( extract_row_daemon( $col, $cell, $row_data ) ) {
-				}
-				else {
+				} else {
 					if (    $row_data->{time_block}
 						 && $sched_block ne $row_data->{time_block} )
 					{
 						$sched_block = $row_data->{time_block};
-					}
-					else {
+					} else {
 						$row_data->{time_block} = $sched_block;
 					}
 				}
@@ -1786,23 +1823,22 @@ sub refresh_legacy {
 
 			my ( $trans_ts, $trans_offset, $trans_num ) = ( 0, -1, -1 );
 			if ( $row_data->{filedate} && $row_data->{filenum} ) {
-				($trans_ts, $trans_num) = lookup_update( $row_data->{filedate},
-										   $row_data->{filenum} );
-				$trans_offset
-					= $trans_ts ? datetime2offset($trans_ts) : -1;
+				( $trans_ts, $trans_num )
+					= lookup_update( $row_data->{filedate},
+									 $row_data->{filenum} );
+				$trans_offset = $trans_ts ? datetime2offset($trans_ts) : -1;
 
 			}
-			
+
 			# compare transaction execution time to schedule offset
 			# GMT now		# GMT sched
-			my $cmp_result; 
-			if ($trans_offset == -1) {
+			my $cmp_result;
+			if ( $trans_offset == -1 ) {
 				$cmp_result = -1;
-			}
-			else {
+			} else {
 				$cmp_result = comp_offsets( $trans_offset, $sched_offset );
 			}
-			
+
 			#say $row_data->{update}, 			$row_data->{filedate};
 
 			#my $cmp_result = comp_offsets( $trans_offset, $sched_offset );
@@ -1810,15 +1846,16 @@ sub refresh_legacy {
 			# if it's within an hour of the scheduled time, mark as on time
 			# could also be early
 			if ( $cmp_result == 0 ) {
-			#	say "$update_id $name $trans_ts $trans_offset $sched_offset $cmp_result" if $trans_ts;
-				#say "ontime $name $trans_offset offset: $sched_offset";
+
+#	say "$update_id $name $trans_ts $trans_offset $sched_offset $cmp_result" if $trans_ts;
+#say "ontime $name $trans_offset offset: $sched_offset";
 				update_history( { update_id    => $update_id,
 								  sched_id     => $sched_id,
 								  trans_offset => $trans_offset,
 								  late         => 'N',
 								  filedate     => $row_data->{filedate},
 								  filenum      => $row_data->{filenum},
-								  transnum => $trans_num,
+								  transnum     => $trans_num,
 								}
 				);
 			}
@@ -1851,8 +1888,7 @@ sub refresh_legacy {
 								  filenum      => ''
 								}
 				);
-			}
-			else {
+			} else {
 				warn
 					"\tFAILED transaction offset sanity check: $name $sched_offset\n";
 				next;
@@ -1872,9 +1908,10 @@ sub lookup_update {
 		and FileNum= '$filenum'
 		--and Status1 = 100 and Status2 = 100
 	";
-	my ($fdfn_ts, $trans_num) = ( $dbh_prod1->selectrow_array($select_fdfn_query) );
+	my ( $fdfn_ts, $trans_num )
+		= ( $dbh_prod1->selectrow_array($select_fdfn_query) );
 
-	return ($fdfn_ts, $trans_num) if defined $fdfn_ts;
+	return ( $fdfn_ts, $trans_num ) if defined $fdfn_ts;
 	return;
 
 }

@@ -3,6 +3,7 @@
 # TQASched daemon polls scheduling data and updates database
 
 use strict;
+use Time::Local;
 use feature 'say';
 
 use lib '..';
@@ -66,14 +67,21 @@ while ( ++$run_counter ) {
 
 sub refresh {
 	my ($year, $month, $day) = get_today();
+	#my ($tyear, $tmonth, $tday) = get_tomorrow();
 	# TODO: spawn background refreshes for other days
 	refresh_dis($year, $month, $day);
+	#refresh_dis($tyear, $tmonth, $tday);
 	refresh_legacy();	
 }
 
 sub get_today {
 	my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst )
 		= gmtime(time);
+	return ($year + 1900, $mon + 1, $mday);
+}
+
+sub get_tomorrow {
+	my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst ) = gmtime(time + 86400);
 	return ($year + 1900, $mon + 1, $mday);
 }
 

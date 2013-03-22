@@ -55,8 +55,7 @@ unless ( $post_date =~ m/(\d{4})(\d{2})(\d{2})/ ) {
 				   }
 		);
 	}
-}
-else {
+} else {
 	$headerdate = "$2/$3/$1";
 
 	# no time when rewinding, obviously
@@ -188,8 +187,7 @@ sub print_table {
 	my $filter = '';
 	if ($legacy_filter) {
 		$filter = 'and u.is_legacy = 1';
-	}
-	elsif ($dis_filter) {
+	} elsif ($dis_filter) {
 		$filter = 'and u.is_legacy = 0';
 	}
 
@@ -209,11 +207,12 @@ sub print_table {
 	";
 
 	my $select_history = "
-		select hist_id, hist_epoch, filedate, filenum, timestamp, late
+		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late
 		from [TQASched].[dbo].[Update_History]
 		where
 		sched_id = ?
-		and cast( floor( cast([timestamp] as float) ) as datetime) = '$headerdate'
+		--and cast( floor( cast([timestamp] as float) ) as datetime) = '$headerdate'
+		order by transnum desc
 	";
 
 	#say 'executing sched query';
@@ -244,7 +243,7 @@ sub print_table {
 		#say "found result: $hist_id";
 		say "
 		<tr class='$row_class'>
-			<td>$name</td>
+			<td>$name [$update_id]</td>
 			<td>$feed_id</td>
 			<td>$sched_time</td>
 			<td>$recvd_time</td>
@@ -262,15 +261,21 @@ sub row_info {
 		= @_;
 	my $row_parity = $row_count % 2;
 
-	my $sched_time = offset2time($sched_offset);
+	my $sched_time = offset2time($sched_offset, 1);
 
 	# if there is a history record, it can be ontime or late
 	my ( $status, $daemon_ts, $recvd_time, $update );
 	if ($hist_id) {
-		$status     = $late eq 'N' ? 'recv' : 'late';
-		$recvd_time = $filedate? offset2time($hist_offset) : 'N/A';
+		if ($late eq 'N' || $late eq 'E') {
+			$status = 'recv';
+		}
+		else { $status = 'late'}
+		
+		
+		#$status     = $late eq 'N' ? 'recv'                    : 'late';
+		$recvd_time = $filedate    ? offset2time($hist_offset) : 'N/A';
 		$daemon_ts  = $hist_ts;
-		$update     = $filedate ? "$filedate-$filenum" : 'N/A';
+		$update     = $filedate    ? "$filedate-$filenum"      : 'N/A';
 	}
 
 	# no history record, still waiting
@@ -316,8 +321,9 @@ sub get_wd {
 }
 
 sub offset2time {
-	my $offset = shift;
+	my ($offset, $sched_flag)      = @_;
 	my $orig_offset = $offset;
+
 	# first drop the day portion of the offset
 	my $wd         = get_wd();
 	my $day_offset = $wd * 86400;
@@ -345,24 +351,26 @@ sub offset2time {
 	my $past_flag = 0;
 
 # if offset is negative at this point, then it happened before the scheduled/current day
-	if ( $offset < 0 ) {
+	if ( $offset <= -1 ) {
 		my $into_previous = $orig_offset;
 		$past_flag++;
+
 		# rewind into previous day
 		#my $into_previous = 86400 + $offset;
 		$hours = int( $into_previous / 3600 );
-		
+
 		$into_previous -= $hours * 3600;
-		$hours -= 24 if $hours >= 24;
+		# if there are still extra hours due to bad offset conversion, correct
+		$hours %= 24;
 		$minutes = int( $into_previous / 60 );
+		$past_flag = 0 if $offset == -1;
 	}
 
 	# TODO: change this to display actual date
 	my $post_script = '';
-	if ($past_flag) {
+	if ($past_flag && !$sched_flag) {
 		$post_script = ' prev day';
-	}
-	elsif ($fut_flag) {
+	} elsif ($fut_flag) {
 		$post_script = " $fut_flag future?";
 	}
 

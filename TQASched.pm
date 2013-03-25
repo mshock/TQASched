@@ -801,7 +801,7 @@ sub comp_offsets {
 
 	# otherwise we're still waiting
 	else {
-		say $offset_diff;
+		#say $offset_diff;
 		return -1;
 	}
 }
@@ -920,7 +920,7 @@ sub update_history {
 			$hashref->{filedate},     $hashref->{filenum},
 			$hashref->{transnum}
 		);
-
+	#say "$update_id $sched_id $trans_offset";
 	#say "( $update_id, $sched_id, $trans_offset, $late_q, $fd_q, $fn_q )";
 	# if there was a trasnum some things need to be done:
 	my $select_trans_num = '';
@@ -946,16 +946,40 @@ sub update_history {
 		$select_trans_num
 	" );
 
+	# if no history record found (most likely for this transaction number)
+	# check if just the transaction number needs to be updated
+	my $update_trans_flag = 0;
+	if ( !$hist_id && $fd_q && $fn_q ) {
+		my $old_trans_num;
+		( $hist_id, $old_trans_num ) = $dbh_sched->selectrow_array( "
+		select hist_id, transnum
+		from [TQASched].dbo.Update_History
+		where  sched_id = $sched_id
+		and filedate = $fd_q
+		and filenum = $fn_q
+	" );
+		$update_trans_flag = 1
+			if defined $old_trans_num && $old_trans_num != $trans_num;
+	}
+
 	# recvd already, return
-	if ( $fd && $fn || ( defined $late && $late eq 'E' ) ) {
+	if ( ( $fd && $fn || ( defined $late && $late eq 'E' )  )
+		 && !$update_trans_flag && $trans_offset != -1)
+	{
 		say "\talready stored $update_id";
 		return;
 	}
 
 # already an entry in history (late), update with newly found filedate filenum
-	elsif ( defined $hist_id && ( $fd_q && $fn_q ) && ( !$fd || !$fn ) ) {
-
-		say "\t$update_id updating";
+	elsif ( defined $hist_id && ( ( ( $fd_q && $fn_q ) && ( !$fd || !$fn ) ) || $trans_offset != -1  || $update_trans_flag )) 
+	{
+		
+		
+		
+		say "\t$update_id updating: "
+			. ( $update_trans_flag
+				? '(latest transnum)'
+				: '(wait/late -> recvd)' );
 		$dbh_sched->do( "
 			update TQASched.dbo.Update_History
 			set filedate = $fd_q, filenum = $fn_q, transnum = $trans_num 
@@ -965,15 +989,20 @@ sub update_history {
 	}
 
 	# not recvd and never seen, insert new record w/ filedate and filenum
-	elsif ( !$hist_id && $fd_q && $fn_q ) {
-
+	elsif ( (!$hist_id && $fd_q && $fn_q) || $trans_offset == -1 ) {
+		# handle legacy miss, mark as recvd but without details due to parsing error
+		if ($trans_offset == -1) {
+			#say "\t$update_id legacy failed to parse, but rcvd";
+		}
+		
 		say "\t$update_id inserting (found)";
-
 		# if skipped, change status for insert
 		if ( $fd_q =~ m/skipped/i || $fn_q =~ m/skipped/i ) {
 			( $fd_q, $fn_q ) = ( 0, 0 );
 			$late_q = 'S';
 		}
+		$fd_q ||= 0;
+		$fn_q ||= 0;
 
 		# retrieve filedate and filenum from TQALic on nprod1
 		#my ( $fd, $fn ) = get_fdfn($trans_num);
@@ -1670,8 +1699,11 @@ sub refresh_dis {
 		and us.weekday = $tomorrow_wd
 		and u.update_id = $update_id
 		";
-					( $offset, $sched_id )
+					my ( $temp_offset, $temp_sched_id )
 						= $dbh_sched->selectrow_array($get_tomorrow_query);
+					# skip this update because it wasn't scheduled for the next day to begin with!
+					next if !$temp_sched_id;
+					($offset, $sched_id) = ($temp_offset, $temp_sched_id);
 				}
 			}
 
@@ -1859,7 +1891,7 @@ sub refresh_legacy {
 			}
 
 			my ( $trans_ts, $trans_offset, $trans_num ) = ( 0, -1, -1 );
-			if ( $row_data->{filedate} && $row_data->{filenum} ) {
+			if ( $row_data->{filedate} && $row_data->{filenum} && $row_data->{filedate} !~ m/skip/i && $row_data->{filenum} !~ m/skip/i ) {
 				( $trans_ts, $trans_num )
 					= lookup_update( $row_data->{filedate},
 									 $row_data->{filenum} );

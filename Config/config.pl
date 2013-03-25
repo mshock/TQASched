@@ -136,19 +136,39 @@ sub define_defaults {
 							ALIAS   => 'refresh',
 		},
 
-		# report date CGI variable
+		#-------------------------------------------------------------------
+		#  all CGI variables for the report follow:
+		#-------------------------------------------------------------------
+		# target date
 		report_date => { DEFAULT => '',
 						 ARGS    => '=i',
 						 ALIAS   => 'date',
 		},
+		# filter only legacy radio button
 		report_legacy_filter => {
 								DEFAULT => '',
 								ARGS    => '=s',
 								ALIAS => 'legacy|legacy_filter|filter_legacy',
 		},
+		# filter only dis radio button
 		report_dis_filter => { DEFAULT => '',
 							   ARGS    => '=s',
 							   ALIAS   => 'dis|dis_filter|filter_dis',
+		},
+		report_search => {
+			DEFAULT => '',
+			ARGS => '=s',
+			ALIAS => 'search',
+		},
+		report_search_upd => {
+			DEFAULT => '',
+			ARGS => '=s',
+			ALIAS => 'search_upd',
+		},
+		report_search_type => {
+			DEFAULT => '',
+			ARGS => '=s',
+			ALIAS => 'search_type',
 		},
 
 # refresh rate for the report page - can't be less than 10, and 0 means never.

@@ -24,9 +24,12 @@ my ( $headerdate, $headertime, $dbdate ) = calc_datetime();
 
 # get POST params
 # parsed from CLI arg key/value pairs
-my $post_date     = $cfg->date;
-my $legacy_filter = $cfg->legacy =~ REGEX_TRUE ? 'checked' : '';
-my $dis_filter    = $cfg->dis =~ REGEX_TRUE ? 'checked' : '';
+my ( $post_date, $legacy_filter, $dis_filter, $prev_search ) = ('') x 4;
+
+$post_date     = $cfg->date;
+$legacy_filter = $cfg->legacy =~ REGEX_TRUE ? 'checked' : '';
+$dis_filter    = $cfg->dis =~ REGEX_TRUE ? 'checked' : '';
+$prev_search = $cfg->search ;
 if ( $legacy_filter && $dis_filter ) {
 	( $legacy_filter, $dis_filter ) = ( '', '' );
 }
@@ -56,11 +59,13 @@ unless ( $post_date =~ m/(\d{4})(\d{2})(\d{2})/ ) {
 		);
 	}
 } else {
+
+	# header time shows current when in a different date
+
+	$headertime = "[$headerdate $headertime]";
 	$headerdate = "$2/$3/$1";
 
-	# no time when rewinding, obviously
-	$headertime = '';
-	$dbdate     = $post_date;
+	$dbdate = $post_date;
 }
 
 print_header();
@@ -121,13 +126,27 @@ sub print_thead {
 		<thead>
 			<tr>
 				<th colspan='$num_headers' >
-					<h2>Market Date $headerdate&nbsp&nbsp&nbsp|&nbsp&nbsp&nbsp$headertime </h2>
+					<h2>GMT Date $headerdate&nbsp&nbsp&nbsp|&nbsp&nbsp&nbsp$headertime </h2>
 				</th>
 			</tr>
 			<tr>
 				<th colspan='$num_headers'>
-					<input type='checkbox' name='filter_legacy' value='true' onclick='this.form.submit();' $legacy_filter/> Only Legacy
-					<input type='checkbox' name='filter_dis' value='true' onclick='this.form.submit();' $dis_filter/> Only DIS
+					<input type='checkbox' name='search_upd' value='true' title='search by UPD filedate[-filenum]'/> UPD
+					<input type='text' name='date' value='$headerdate' />
+					<input type='text' name='search' value='$prev_search' title='Search'/>
+				<select name='search_type'>
+					<option value='Feed'  >Feed Name</option>
+					<option value='Feed_ID'  >Feed ID</option>
+				</select>
+				<input type='submit' value='search' />
+				</th>
+			</tr>
+			
+			<tr>
+				<th colspan='$num_headers'>
+					<input type='radio' name='filter_legacy' value='true' onclick='this.form.submit();' $legacy_filter/> Only Legacy
+					<input type='radio' name='filter_dis' value='true' onclick='this.form.submit();' $dis_filter/> Only DIS
+					<input type='button' value='reset' onclick='parent.location=\"/\"' />
 				</th>
 			</tr>
 			<tr>
@@ -261,21 +280,21 @@ sub row_info {
 		= @_;
 	my $row_parity = $row_count % 2;
 
-	my $sched_time = offset2time($sched_offset, 1);
+	my $sched_time = offset2time( $sched_offset, 1 );
 
 	# if there is a history record, it can be ontime or late
 	my ( $status, $daemon_ts, $recvd_time, $update );
 	if ($hist_id) {
-		if ($late eq 'N' || $late eq 'E') {
+		if ( $late eq 'N' || $late eq 'E' ) {
 			$status = 'recv';
+		} else {
+			$status = 'late';
 		}
-		else { $status = 'late'}
-		
-		
+
 		#$status     = $late eq 'N' ? 'recv'                    : 'late';
-		$recvd_time = $filedate    ? offset2time($hist_offset) : 'N/A';
+		$recvd_time = $filedate ? offset2time($hist_offset) : 'N/A';
 		$daemon_ts  = $hist_ts;
-		$update     = $filedate    ? "$filedate-$filenum"      : 'N/A';
+		$update     = $filedate ? "$filedate-$filenum" : 'N/A';
 	}
 
 	# no history record, still waiting
@@ -321,7 +340,7 @@ sub get_wd {
 }
 
 sub offset2time {
-	my ($offset, $sched_flag)      = @_;
+	my ( $offset, $sched_flag ) = @_;
 	my $orig_offset = $offset;
 
 	# first drop the day portion of the offset
@@ -360,6 +379,7 @@ sub offset2time {
 		$hours = int( $into_previous / 3600 );
 
 		$into_previous -= $hours * 3600;
+
 		# if there are still extra hours due to bad offset conversion, correct
 		$hours %= 24;
 		$minutes = int( $into_previous / 60 );
@@ -367,12 +387,25 @@ sub offset2time {
 	}
 
 	# TODO: change this to display actual date
-	my $post_script = '';
-	if ($past_flag && !$sched_flag) {
-		$post_script = ' prev day';
+	my $date_display = '';
+	if ( $past_flag && !$sched_flag ) {
+		$date_display = date_math(-1) || 'prev day';
+
 	} elsif ($fut_flag) {
-		$post_script = " $fut_flag future?";
+		$date_display = date_math( -$fut_flag + 1) || "$fut_flag future?";
 	}
 
-	return sprintf( '%02u:%02u GMT%s', $hours, $minutes, $post_script );
+	return sprintf( '%s %02u:%02u', $date_display, $hours, $minutes );
+}
+
+# do date math in days on current view's date
+sub date_math {
+	my ($delta_days) = @_;
+	my ( $month, $day, $year ) = ( $headerdate =~ m!(\d+)/(\d+)/(\d+)! )
+		or ( return and warn "could not do date math!\n" );
+	my $time = timegm( 0, 0, 0, $day, $month - 1, $year - 1900 );
+	$time += $delta_days * 86400;
+	my ( $sec, $min, $hour, $mday, $mon, $y, $wday, $yday, $isdst )
+		= gmtime($time);
+	return sprintf '%u-%02u-%02u', $y + 1900, $mon + 1, $mday;
 }

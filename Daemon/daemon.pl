@@ -71,7 +71,7 @@ sub refresh {
 	# TODO: spawn background refreshes for other days
 	refresh_dis($year, $month, $day);
 	#refresh_dis($tyear, $tmonth, $tday);
-	refresh_legacy();	
+	refresh_legacy($year, $month, $day);	
 }
 
 sub get_today {

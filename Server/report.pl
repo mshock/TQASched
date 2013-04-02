@@ -14,7 +14,7 @@ my $cfg     = load_conf('..');
 my $refresh = $cfg->refresh;
 
 # redirect that STDERR if it's not going to the term
-redirect_stderr( $cfg->report_log ) if caller;
+#redirect_stderr( $cfg->report_log ) if caller;
 
 # we only need the handle for TQASched db in the report! that's all, folks!
 my ($dbh_sched) = refresh_handles( ('sched') );
@@ -76,6 +76,7 @@ print_thead(
 		Feed_ID
 		Scheduled_Time
 		Received_Time
+		Feed_Date
 		Update(UPD)
 		Timestamp
 		)
@@ -151,7 +152,7 @@ sub print_thead {
 			</tr>
 			<tr>
 				<th colspan='2'><a href='?date=$prevdate'><<</a> previous ($prevdate)</th>
-				<th colspan='4'>($nextdate) next <a href='?date=$nextdate'>>></a></th>
+				<th colspan='5'>($nextdate) next <a href='?date=$nextdate'>>></a></th>
 			</tr>
 			<tr>";
 	for my $header (@headers) {
@@ -226,12 +227,12 @@ sub print_table {
 	";
 
 	my $select_history = "
-		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late
+		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date
 		from [TQASched].[dbo].[Update_History]
 		where
 		sched_id = ?
 		--and cast( floor( cast([timestamp] as float) ) as datetime) = '$headerdate'
-		order by transnum desc
+		order by feed_date desc
 	";
 
 	#say 'executing sched query';
@@ -248,16 +249,16 @@ sub print_table {
 			 $feed_id )
 			= @{$row_aref};
 		$hist_query->execute($sched_id);
-		my ( $hist_id, $hist_offset, $filedate, $filenum, $hist_ts, $late )
+		my ( $hist_id, $hist_offset, $filedate, $filenum, $hist_ts, $late, $feed_date )
 			= $hist_query->fetchrow_array();
 
 		#say "fetched row for $sched_id";
 		# this has been seen for today, has history record
 
 		my ( $row_class,  $status,    $sched_time,
-			 $recvd_time, $daemon_ts, $update )
+			 $recvd_time, $daemon_ts, $update, $feed_date_pretty )
 			= row_info( $row_count, $late, $hist_id, $sched_offset,
-						$hist_offset, $hist_ts, $filedate, $filenum );
+						$hist_offset, $hist_ts, $filedate, $filenum, $feed_date );
 
 		#say "found result: $hist_id";
 		say "
@@ -266,6 +267,7 @@ sub print_table {
 			<td>$feed_id</td>
 			<td>$sched_time</td>
 			<td>$recvd_time</td>
+			<td>$feed_date_pretty</td>
 			<td>$update</td>
 			<td>$daemon_ts</td>
 		</tr>";
@@ -276,7 +278,7 @@ sub print_table {
 # assign a style to row based on count
 sub row_info {
 	my ( $row_count, $late, $hist_id, $sched_offset, $hist_offset, $hist_ts,
-		 $filedate, $filenum )
+		 $filedate, $filenum, $feed_date )
 		= @_;
 	my $row_parity = $row_count % 2;
 
@@ -304,11 +306,15 @@ sub row_info {
 		$daemon_ts  = 'N/A';
 		$update     = 'N/A';
 	}
+	
+	$feed_date ||= 'N/A';
 
+	$feed_date =~ s/\s.*//;
+	
 	my $row_class = $status . ( $row_parity ? '_even' : '_odd' );
 
 	return ( $row_class, $status, $sched_time, $recvd_time, $daemon_ts,
-			 $update );
+			 $update, $feed_date );
 }
 
 sub print_footer {
@@ -332,7 +338,9 @@ sub calc_datetime {
 
 # returns code for passed date
 sub get_wd {
-	my ( $month, $day, $year ) = ( $headerdate =~ m!(\d+)/(\d+)/(\d+)! );
+	my ($date) = @_;
+	$date ||= $headerdate;
+	my ( $month, $day, $year ) = ( $date =~ m!(\d+)/(\d+)/(\d+)! );
 	my $time = timegm( 0, 0, 0, $day, $month - 1, $year - 1900 );
 	my ( $sec, $min, $hour, $mday, $mon, $y, $wday, $yday, $isdst )
 		= gmtime($time);
@@ -393,6 +401,16 @@ sub offset2time {
 
 	} elsif ($fut_flag) {
 		$date_display = date_math( -$fut_flag + 1) || "$fut_flag future?";
+	}
+
+
+	# do a sanity check on hours/minutes
+	if ($hours < 0 || $minutes < 0) {
+		$offset = $orig_offset;
+		$offset %= 86400;
+		$hours = int( $offset / 3600 );
+		$offset -= $hours * 3600;
+		$minutes = int( $offset / 60 );
 	}
 
 	return sprintf( '%s %02u:%02u', $date_display, $hours, $minutes );

@@ -374,8 +374,7 @@ sub check_handles {
 
 # close database handles
 sub kill_handles {
-	my @handles = @_;
-	map { $_->disconnect } @handles;
+	map { $_->disconnect if defined $_ } @_;
 }
 
 # kills any child processes
@@ -711,9 +710,10 @@ sub now_wd {
 
 # update all older builds issued in the same update
 sub backdate {
-	my ( $backdate_updates, $trans_offset, $late, $fd, $fn, $build_num,
-		 $orig_sched_id, $trans_num )
-		= @_;
+	my ( $backdate_updates, $trans_offset, $late,
+		 $fd,               $fn,           $build_num,
+		 $orig_sched_id,    $trans_num,    $feed_date
+	) = @_;
 
 	for my $backdate_rowaref ( @{$backdate_updates} ) {
 		my ( $sched_id, $name, $update_id, $filedate ) = @{$backdate_rowaref};
@@ -731,7 +731,8 @@ sub backdate {
 						  late         => $late,
 						  filedate     => $fd,
 						  filenum      => $fn,
-						  transnum     => $trans_num
+						  transnum     => $trans_num,
+						  feed_date    => $feed_date
 						}
 		);
 	}
@@ -801,6 +802,7 @@ sub comp_offsets {
 
 	# otherwise we're still waiting
 	else {
+
 		#say $offset_diff;
 		return -1;
 	}
@@ -913,13 +915,18 @@ sub upd_date {
 # store/modify update history entry
 sub update_history {
 	my $hashref = shift;
-	my ( $update_id, $sched_id, $trans_offset, $late_q, $fd_q, $fn_q,
-		 $trans_num )
+	my ( $update_id, $sched_id,  $trans_offset,
+		 $late_q,    $fd_q,      $fn_q,
+		 $trans_num, $is_legacy, $feed_date
+		)
 		= ( $hashref->{update_id},    $hashref->{sched_id},
 			$hashref->{trans_offset}, $hashref->{late},
 			$hashref->{filedate},     $hashref->{filenum},
-			$hashref->{transnum}
+			$hashref->{transnum},     $hashref->{is_legacy},
+			$hashref->{feed_date}
 		);
+	$is_legacy ||= 0;
+
 	#say "$update_id $sched_id $trans_offset";
 	#say "( $update_id, $sched_id, $trans_offset, $late_q, $fd_q, $fn_q )";
 	# if there was a trasnum some things need to be done:
@@ -943,6 +950,7 @@ sub update_history {
 		select hist_id, late, filedate, filenum
 		from [TQASched].dbo.Update_History
 		where  sched_id = $sched_id
+		and feed_date = '$feed_date'
 		$select_trans_num
 	" );
 
@@ -952,7 +960,7 @@ sub update_history {
 	if ( !$hist_id && $fd_q && $fn_q ) {
 		my $old_trans_num;
 		( $hist_id, $old_trans_num ) = $dbh_sched->selectrow_array( "
-		select hist_id, transnum
+		select hist_id, transnum, feed_date
 		from [TQASched].dbo.Update_History
 		where  sched_id = $sched_id
 		and filedate = $fd_q
@@ -963,23 +971,28 @@ sub update_history {
 	}
 
 	# recvd already, return
-	if ( ( $fd && $fn || ( defined $late && $late eq 'E' )  )
-		 && !$update_trans_flag && $trans_offset != -1)
+	if (    ( $fd && $fn || ( defined $late && $late eq 'E' ) )
+		 && !$update_trans_flag
+		 && $trans_offset != -1 && $trans_num != -1)
 	{
 		say "\talready stored $update_id";
 		return;
 	}
 
+# TODO verify using feed_date rather than history entry for sched_id
 # already an entry in history (late), update with newly found filedate filenum
-	elsif ( defined $hist_id && ( ( ( $fd_q && $fn_q ) && ( !$fd || !$fn ) ) || $trans_offset != -1  || $update_trans_flag )) 
+	elsif ( defined $hist_id
+			&& (    ( ( $fd_q && $fn_q ) && ( !$fd || !$fn ) )
+				 || $trans_offset != -1
+				 || $update_trans_flag )
+		)
 	{
-		
-		
-		
+
 		say "\t$update_id updating: "
 			. ( $update_trans_flag
 				? '(latest transnum)'
-				: '(wait/late -> recvd)' );
+				: '(wait/late -> recvd)'
+			);
 		$dbh_sched->do( "
 			update TQASched.dbo.Update_History
 			set filedate = $fd_q, filenum = $fn_q, transnum = $trans_num 
@@ -989,13 +1002,21 @@ sub update_history {
 	}
 
 	# not recvd and never seen, insert new record w/ filedate and filenum
-	elsif ( (!$hist_id && $fd_q && $fn_q) || $trans_offset == -1 ) {
-		# handle legacy miss, mark as recvd but without details due to parsing error
-		if ($trans_offset == -1) {
-			#say "\t$update_id legacy failed to parse, but rcvd";
+	elsif ( ( !$hist_id && $fd_q && $fn_q ) || $trans_offset == -1 && $trans_num != -1 ) {
+
+  # handle legacy miss, mark as recvd but without details due to parsing error
+		if ( $trans_offset == -1 && !$is_legacy ) {
+			say "\t$update_id DIS not done today yet";
+
+			#return;
+		} elsif ($is_legacy) {
+			say "\t$update_id legacy recvd, but parsing error";
+
+			#return;
 		}
-		
+
 		say "\t$update_id inserting (found)";
+
 		# if skipped, change status for insert
 		if ( $fd_q =~ m/skipped/i || $fn_q =~ m/skipped/i ) {
 			( $fd_q, $fn_q ) = ( 0, 0 );
@@ -1009,7 +1030,7 @@ sub update_history {
 		my $insert_hist = "
 			insert into TQASched.dbo.Update_History 
 			values
-			($update_id, $sched_id, $trans_offset, $fd_q, $fn_q, GetUTCDate(), '$late_q', $trans_num )
+			($update_id, $sched_id, $trans_offset, $fd_q, $fn_q, GetUTCDate(), '$late_q', $trans_num, '$feed_date' )
 		";
 
 		#say $insert_hist;
@@ -1018,14 +1039,15 @@ sub update_history {
 
 	# otherwise, it is late/wait and has no filedate filenum, insert
 	else {
-		say "\t$update_id inserting (not found)";
-		$trans_num = 'NULL' if $trans_num != -1;
-		my $insert_hist = "
-			insert into TQASched.dbo.Update_History 
-			values
-			($update_id, $sched_id, $trans_offset, NULL, NULL, GetUTCDate(), '$late_q', $trans_num)
-		";
-		$dbh_sched->do($insert_hist) or warn "could not insert!!!\n";
+#		say "\t$update_id inserting (not found)";
+#		$trans_num = 'NULL' if $trans_num != -1;
+#		my $insert_hist = "
+#			insert into TQASched.dbo.Update_History 
+#			values
+#			($update_id, $sched_id, $trans_offset, NULL, NULL, GetUTCDate(), '$late_q', $trans_num, '$feed_date')
+#		";
+#		$dbh_sched->do($insert_hist) or warn "could not insert!!!\n";
+		say "\t$update_id not found, must still be waiting";
 	}
 
 }
@@ -1283,15 +1305,32 @@ sub code_weekday {
 sub init_handle {
 	my $db = shift;
 
-	# connecting to master since database may need to be created
-	return
-		DBI->connect(
-		sprintf(
-			"dbi:ODBC:Database=%s;Driver={SQL Server};Server=%s;UID=%s;PWD=%s",
-			$db->{name} || 'master', $db->{server},
-			$db->{user}, $db->{pwd}
-		)
-		) or die "failed to initialize database handle\n", $DBI::errstr;
+	my ( $dbh, $success, $tries ) = ( undef, 0, 0 );
+
+	# force connection, for server reboots/not responsive
+	while ( !$success ) {
+		$tries++;
+		$dbh = DBI->connect(
+
+			# connecting to master since database may need to be created
+
+			sprintf(
+				"dbi:ODBC:Database=%s;Driver={SQL Server};Server=%s;UID=%s;PWD=%s",
+				$db->{name} || 'master', $db->{server},
+				$db->{user}, $db->{pwd}
+			),
+			{ RaiseError => 0, PrintError => 1 }
+		);
+
+		if ( defined $dbh && !$DBI::err  ) {
+			$success = 1;
+		}
+
+	}
+
+	return $dbh;
+
+	# or die "failed to initialize database handle\n", $DBI::errstr;
 }
 
 # create database if not already present
@@ -1395,11 +1434,12 @@ sub check_db {
 sub find_sched {
 
 	# optional argument to refresh specific spreadsheet file
-	my ( $year, $month, $mday ) = @_;
+	my ( $tyear, $tmonth, $tmday ) = @_;
 
-	if ( defined $year ) {
+	my $time = time;
+	if ( defined $tyear ) {
 
-		#		 = timegm($sec,$min,$hour,$mday,$mon,$year);
+		$time = timegm( 0, 0, 0, $tmday, $tmonth, $tyear );
 	}
 
 # old method, finds the youngest file and matches the date range (good for transition)
@@ -1416,7 +1456,7 @@ sub find_sched {
 	#timegm();
 
 	# get current datetime for reference
-	my $now_date = ParseDate( 'epoch ' . time );
+	my $now_date = ParseDate( 'epoch ' . $time );
 	$now_date = Date_ConvTZ( $now_date, undef, 'GMT' );
 
 	# find the beginning and end dates for the schedule filename's range
@@ -1523,7 +1563,7 @@ sub refresh_dis {
 			from [TQALic].dbo.[PackageQueue] 
 			with (NOLOCK)
 			where TaskReference LIKE '%$feed_id%'
-			order by TransactionNumber desc
+			order by FeedDate desc
 		";
 
 			my ( $status, $exec_end, $fd, $fn, $sender, $trans_num,
@@ -1549,7 +1589,7 @@ sub refresh_dis {
 
 				# backdate builds packaged in the same UPD
 				my $backdate_query = "
-				select us.sched_id, u.name, u.update_id, uh.filedate
+				select us.sched_id, u.name, u.update_id, uh.filedate, uh.feed_date
 				from tqasched.dbo.update_schedule us
 				join tqasched.dbo.updates u
 					on u.update_id = us.update_id
@@ -1618,7 +1658,8 @@ sub refresh_dis {
 									  late         => 'E',
 									  filedate     => 'NULL',
 									  filenum      => 'NULL',
-									  transnum     => $trans_num
+									  transnum     => $trans_num,
+									  feed_date    => $feed_date
 									}
 					);
 					next;
@@ -1630,12 +1671,11 @@ sub refresh_dis {
 				}
 
 # verify that feed dates match the target date, otherwise this is still wait or late, don't mark empty
-				elsif (
-					!(     $feed_year == $tyear
-						&& $feed_mon == $tmonth
-						&& $feed_day == $tday
-					)
-
+				elsif ( !(    $feed_year == $tyear
+						   && $feed_mon == $tmonth
+						   && $feed_day == $tday
+						)
+						&& $current_wd != 1
 					)
 				{
 					if ( ( $offset % 86400 ) < 16200 ) {
@@ -1665,12 +1705,12 @@ sub refresh_dis {
 					$trans_offset = datetime2offset($exec_end);
 					my $fut_flag = int( $trans_offset / 86400 );
 					$trans_offset -= $fut_flag * 86400;
-
-					#say $trans_offset;
-				} elsif ( $current_wd == 1 ) {
-					say "\t\tmarking $name wait on a monday";
-					$trans_offset = -1;
 				}
+					#say $trans_offset;
+#				} elsif ( $current_wd == 1 ) {
+#					say "\t\tmarking $name wait on a monday";
+#					$trans_offset = -1;
+#				}
 
 				#				else {
 				#					say "this is an old update: $name";
@@ -1701,9 +1741,10 @@ sub refresh_dis {
 		";
 					my ( $temp_offset, $temp_sched_id )
 						= $dbh_sched->selectrow_array($get_tomorrow_query);
-					# skip this update because it wasn't scheduled for the next day to begin with!
+
+# skip this update because it wasn't scheduled for the next day to begin with!
 					next if !$temp_sched_id;
-					($offset, $sched_id) = ($temp_offset, $temp_sched_id);
+					( $offset, $sched_id ) = ( $temp_offset, $temp_sched_id );
 				}
 			}
 
@@ -1768,11 +1809,16 @@ sub refresh_dis {
 									  late         => 'N',
 									  filedate     => $fd,
 									  filenum      => $fn,
-									  transnum     => $trans_num
+									  transnum     => $trans_num,
+									  feed_date    => $feed_date
 									}
 					);
-					backdate( $backdate_updates, $trans_offset, 'N', $fd, $fn,
-							  $build_num, $sched_id, $trans_num );
+					backdate( $backdate_updates, $trans_offset,
+							  'N',               $fd,
+							  $fn,               $build_num,
+							  $sched_id,         $trans_num,
+							  $feed_date
+					);
 				}
 
 				# otherwise it either has not come in or it is late
@@ -1785,11 +1831,16 @@ sub refresh_dis {
 									  late         => 'Y',
 									  filedate     => $fd,
 									  filenum      => $fn,
-									  transnum     => $trans_num
+									  transnum     => $trans_num,
+									  feed_date    => $feed_date
 									}
 					);
-					backdate( $backdate_updates, $trans_offset, 'Y', $fd, $fn,
-							  $build_num, $sched_id, $trans_num );
+					backdate( $backdate_updates, $trans_offset,
+							  'Y',               $fd,
+							  $fn,               $build_num,
+							  $sched_id,         $trans_num,
+							  $feed_date
+					);
 				}
 
 				# possibly just not recvd yet
@@ -1812,11 +1863,14 @@ sub refresh_dis {
 
 # poll ops schedule Excel spreadsheet for legacy feed statuses
 sub refresh_legacy {
+	my ( $tyear, $tmonth, $tday ) = @_;
 
 	check_handles();
 
 	# attempt to find & download the latest spreadsheet from OpsDocs server
-	my $sched_xls = find_sched();
+	my $sched_xls = find_sched( $tyear, $tmonth, $tday );
+
+	my $feed_date = "$tmonth-$tday-$tyear";
 
 	# create parser and parse xls
 	my $xlsparser = Spreadsheet::ParseExcel->new();
@@ -1891,7 +1945,11 @@ sub refresh_legacy {
 			}
 
 			my ( $trans_ts, $trans_offset, $trans_num ) = ( 0, -1, -1 );
-			if ( $row_data->{filedate} && $row_data->{filenum} && $row_data->{filedate} !~ m/skip/i && $row_data->{filenum} !~ m/skip/i ) {
+			if (    $row_data->{filedate}
+				 && $row_data->{filenum}
+				 && $row_data->{filedate} !~ m/skip/i
+				 && $row_data->{filenum} !~ m/skip/i )
+			{
 				( $trans_ts, $trans_num )
 					= lookup_update( $row_data->{filedate},
 									 $row_data->{filenum} );
@@ -1925,6 +1983,8 @@ sub refresh_legacy {
 								  filedate     => $row_data->{filedate},
 								  filenum      => $row_data->{filenum},
 								  transnum     => $trans_num,
+								  is_legacy    => 1,
+								  feed_date    => $feed_date,
 								}
 				);
 			}
@@ -1939,7 +1999,9 @@ sub refresh_legacy {
 								  trans_offset => $trans_offset,
 								  late         => 'Y',
 								  filedate     => $row_data->{filedate},
-								  filenum      => $row_data->{filenum}
+								  filenum      => $row_data->{filenum},
+								  is_legacy    => 1,
+								  feed_date    => $feed_date,
 								}
 				);
 			}
@@ -1954,7 +2016,9 @@ sub refresh_legacy {
 								  trans_offset => -1,
 								  late         => 'N',
 								  filedate     => '',
-								  filenum      => ''
+								  filenum      => '',
+								  is_legacy    => 1,
+								  feed_date    => $feed_date,
 								}
 				);
 			} else {

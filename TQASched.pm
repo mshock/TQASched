@@ -2108,16 +2108,16 @@ sub refresh_legacy {
 
 				#say "waiting on $name, last trans: $trans_offset";
 				#say "late $name $trans_offset to offset: $sched_offset";
-				update_history( { update_id    => $update_id,
-								  sched_id     => $sched_id,
-								  trans_offset => -1,
-								  late         => 'N',
-								  filedate     => '',
-								  filenum      => '',
-								  is_legacy    => 1,
-								  feed_date    => $feed_date,
-								}
-				);
+#				update_history( { update_id    => $update_id,
+#								  sched_id     => $sched_id,
+#								  trans_offset => -1,
+#								  late         => 'N',
+#								  filedate     => '',
+#								  filenum      => '',
+#								  is_legacy    => 1,
+#								  feed_date    => $feed_date,
+#								}
+#				);
 			} else {
 				warn
 					"\tFAILED transaction offset sanity check: $name $sched_offset\n";

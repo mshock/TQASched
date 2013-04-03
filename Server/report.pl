@@ -427,7 +427,7 @@ sub offset2time {
 		# if there are still extra hours due to bad offset conversion, correct
 		$hours %= 24;
 		$minutes = int( $into_previous / 60 );
-		$past_flag = 0 if $offset == -1;
+	#	$past_flag = 0 if $offset == -1;
 	}
 
 	# TODO: change this to display actual date

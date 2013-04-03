@@ -69,10 +69,10 @@ sub refresh {
 	my ($year, $month, $day) = get_today();
 	#my ($year, $month, $day) = (2013,4,2);
 	
-	#my ($tyear, $tmonth, $tday) = get_tomorrow();
+	my ($tyear, $tmonth, $tday) = get_tomorrow();
 	# TODO: spawn background refreshes for other days
 	refresh_dis($year, $month, $day);
-	#refresh_dis($tyear, $tmonth, $tday);
+	refresh_dis($tyear, $tmonth, $tday);
 	refresh_legacy($year, $month, $day);
 	#exit;
 }

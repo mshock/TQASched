@@ -24,14 +24,28 @@ my ( $headerdate, $headertime, $dbdate ) = calc_datetime();
 
 # get POST params
 # parsed from CLI arg key/value pairs
-my ( $post_date, $legacy_filter, $dis_filter, $prev_search ) = ('') x 4;
+my ( $post_date, $legacy_filter, $dis_filter, $prev_search, $search_type, $upd_checked )
+	= ('') x 6;
+
+my $upd_num = 0;
 
 $post_date     = $cfg->date;
 $legacy_filter = $cfg->legacy =~ REGEX_TRUE ? 'checked' : '';
 $dis_filter    = $cfg->dis =~ REGEX_TRUE ? 'checked' : '';
-$prev_search = $cfg->search ;
+$prev_search   = $cfg->search;
+$search_type   = $cfg->search_type;
+$upd_checked = $cfg->search_upd =~ REGEX_TRUE ? 'checked' : '';
+
+
 if ( $legacy_filter && $dis_filter ) {
 	( $legacy_filter, $dis_filter ) = ( '', '' );
+}
+
+my ( $id_selected, $feed_selected ) = ('') x 2;
+if ( $search_type eq 'Feed' ) {
+	$feed_selected = 'selected';
+} elsif ( $search_type eq 'Feed_ID' ) {
+	$id_selected = 'selected';
 }
 
 ######################################################
@@ -65,7 +79,9 @@ unless ( $post_date =~ m/(\d{4})(\d{2})(\d{2})/ ) {
 	$headertime = "[$headerdate $headertime]";
 	$headerdate = "$2/$3/$1";
 
-	$dbdate = $post_date;
+	
+
+	($dbdate, $upd_num) = ($post_date =~ m/(\d+)(?:-(\d+))?/);
 }
 
 print_header();
@@ -122,7 +138,7 @@ sub print_thead {
 
 	say "
 <form method='GET'>
-	<input type='hidden' name='date' value='$dbdate'>
+	
 	<table cellspacing='0' width='100%' border=0>
 		<thead>
 			<tr>
@@ -132,12 +148,12 @@ sub print_thead {
 			</tr>
 			<tr>
 				<th colspan='$num_headers'>
-					<input type='checkbox' name='search_upd' value='true' title='search by UPD filedate[-filenum]'/> UPD
-					<input type='text' name='date' value='$headerdate' />
+					<input type='checkbox' name='search_upd' value='true' title='search by UPD filedate[-filenum]' $upd_checked/> UPD
+					<input type='text' name='date' value='$dbdate' />
 					<input type='text' name='search' value='$prev_search' title='Search'/>
 				<select name='search_type'>
-					<option value='Feed'  >Feed Name</option>
-					<option value='Feed_ID'  >Feed ID</option>
+					<option value='Feed'  $feed_selected>Feed Name</option>
+					<option value='Feed_ID'  $id_selected>Feed ID</option>
 				</select>
 				<input type='submit' value='search' />
 				</th>
@@ -211,6 +227,14 @@ sub print_table {
 		$filter = 'and u.is_legacy = 0';
 	}
 
+	if ($prev_search) {
+		if ( $search_type eq 'Feed' ) {
+			$filter = $filter . " and UPPER(u.name) like UPPER('%$prev_search%')"
+		} elsif ( $search_type eq 'Feed_ID' ) {
+			$filter = $filter . " and UPPER(d.feed_id) like UPPER('%$prev_search%')"
+		}
+	}
+
 	my $select_schedule = "
 	  select distinct us.sched_id, us.update_id, us.sched_epoch, u.name, u.is_legacy, d.feed_id
 	  from [TQASched].[dbo].[Update_Schedule] us,
@@ -226,15 +250,23 @@ sub print_table {
       order by sched_epoch, name asc
 	";
 
+	$filter = '';
+	if ($upd_checked) {
+		$filter = "and filedate = $dbdate";
+		if ($upd_num) {
+			$filter = $filter . " and filenum = $upd_num"
+		}
+	}
 	my $select_history = "
 		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date
 		from [TQASched].[dbo].[Update_History]
 		where
 		sched_id = ?
+		$filter
 		--and cast( floor( cast([timestamp] as float) ) as datetime) = '$headerdate'
 		order by feed_date desc
 	";
-
+	#warn $select_history and die;
 	#say 'executing sched query';
 	my $sched_aref = $dbh_sched->selectall_arrayref($select_schedule);
 
@@ -249,16 +281,19 @@ sub print_table {
 			 $feed_id )
 			= @{$row_aref};
 		$hist_query->execute($sched_id);
-		my ( $hist_id, $hist_offset, $filedate, $filenum, $hist_ts, $late, $feed_date )
+		my ( $hist_id, $hist_offset, $filedate, $filenum, $hist_ts, $late,
+			 $feed_date )
 			= $hist_query->fetchrow_array();
 
 		#say "fetched row for $sched_id";
 		# this has been seen for today, has history record
 
-		my ( $row_class,  $status,    $sched_time,
-			 $recvd_time, $daemon_ts, $update, $feed_date_pretty )
-			= row_info( $row_count, $late, $hist_id, $sched_offset,
-						$hist_offset, $hist_ts, $filedate, $filenum, $feed_date );
+		my ( $row_class, $status, $sched_time, $recvd_time, $daemon_ts,
+			 $update, $feed_date_pretty )
+			= row_info( $row_count,    $late,        $hist_id,
+						$sched_offset, $hist_offset, $hist_ts,
+						$filedate,     $filenum,     $feed_date
+			);
 
 		#say "found result: $hist_id";
 		say "
@@ -277,9 +312,10 @@ sub print_table {
 
 # assign a style to row based on count
 sub row_info {
-	my ( $row_count, $late, $hist_id, $sched_offset, $hist_offset, $hist_ts,
-		 $filedate, $filenum, $feed_date )
-		= @_;
+	my ( $row_count,    $late,        $hist_id,
+		 $sched_offset, $hist_offset, $hist_ts,
+		 $filedate,     $filenum,     $feed_date
+	) = @_;
 	my $row_parity = $row_count % 2;
 
 	my $sched_time = offset2time( $sched_offset, 1 );
@@ -306,15 +342,15 @@ sub row_info {
 		$daemon_ts  = 'N/A';
 		$update     = 'N/A';
 	}
-	
+
 	$feed_date ||= 'N/A';
 
 	$feed_date =~ s/\s.*//;
-	
+
 	my $row_class = $status . ( $row_parity ? '_even' : '_odd' );
 
-	return ( $row_class, $status, $sched_time, $recvd_time, $daemon_ts,
-			 $update, $feed_date );
+	return ( $row_class, $status, $sched_time, $recvd_time,
+			 $daemon_ts, $update, $feed_date );
 }
 
 sub print_footer {
@@ -400,12 +436,11 @@ sub offset2time {
 		$date_display = date_math(-1) || 'prev day';
 
 	} elsif ($fut_flag) {
-		$date_display = date_math( -$fut_flag + 1) || "$fut_flag future?";
+		$date_display = date_math( -$fut_flag + 1 ) || "$fut_flag future?";
 	}
 
-
 	# do a sanity check on hours/minutes
-	if ($hours < 0 || $minutes < 0) {
+	if ( $hours < 0 || $minutes < 0 ) {
 		$offset = $orig_offset;
 		$offset %= 86400;
 		$hours = int( $offset / 3600 );

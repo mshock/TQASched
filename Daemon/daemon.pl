@@ -12,7 +12,7 @@ use TQASched qw(:all);
 my $cfg = load_conf('..');
 
 # redirect that STDERR if it's not going to the term
-redirect_stderr( $cfg->daemon_log ) if caller;
+#redirect_stderr( $cfg->daemon_log ) if caller;
 
 say 'taking a peek at my handles';
 
@@ -67,11 +67,14 @@ while ( ++$run_counter ) {
 
 sub refresh {
 	my ($year, $month, $day) = get_today();
+	#my ($year, $month, $day) = (2013,4,2);
+	
 	#my ($tyear, $tmonth, $tday) = get_tomorrow();
 	# TODO: spawn background refreshes for other days
-	refresh_dis($year, $month, $day);
+	#refresh_dis($year, $month, $day);
 	#refresh_dis($tyear, $tmonth, $tday);
-	refresh_legacy($year, $month, $day);	
+	refresh_legacy($year, $month, $day);
+	#exit;
 }
 
 sub get_today {

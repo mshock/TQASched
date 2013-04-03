@@ -32,6 +32,16 @@ create table [TQASched].dbo.[Update_History] (
 	transnum int,
 	feed_date DateTime not null
 )
+
+--# constrain history tracking to prevent duplicate records per feed_date
+CREATE UNIQUE CLUSTERED INDEX [IX_Update_History] ON [TQASched].[dbo].[Update_History] 
+(
+	[hist_id] DESC,
+	[sched_id] DESC,
+	[feed_date] DESC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, SORT_IN_TEMPDB = OFF, IGNORE_DUP_KEY = ON, DROP_EXISTING = OFF, ONLINE = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON) ON [PRIMARY]
+
+
 --# create linking table from DIS feed_ids to update_ids
 	create table [TQASched].dbo.[Update_DIS] (
 	update_dis_id int not null identity(1,1),

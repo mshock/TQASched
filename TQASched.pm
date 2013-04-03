@@ -249,8 +249,8 @@ sub init_sched {
 	# create parser and parse xls
 	my $xlsparser = Spreadsheet::ParseExcel->new();
 	my $workbook  = $xlsparser->parse($sched_xls)
-		or die "unable to parse spreadsheet: $sched_xls\n",
-		$xlsparser->error();
+		or say "unable to parse spreadsheet: $sched_xls\n",
+		$xlsparser->error() and return;
 	say 'done loading master spreadsheet Excel file';
 
 	# optionally create database and tables
@@ -892,7 +892,7 @@ sub upd_date {
 	}
 	my ( $year, $month, $mday ) = parse_filedate($now_date);
 	my $time_arg = timegm( 0, 0, 0, $mday, $month - 1, $year - 1900 )
-		or die "[1]\tupd_date() failed for: $now_date\n";
+		or say "[1]\tupd_date() failed for: $now_date\n";
 
 	# get DOW
 	my ($wday) = ( gmtime($time_arg) )[6];
@@ -921,7 +921,7 @@ sub upd_date {
 
 	# convert back to YYYYMMDD format
 	( $year, $month, $mday ) = gmtime($time_arg)
-		or die "[2]\tupd_date() failed for: $time_arg\n";
+		or say "[2]\tupd_date() failed for: $time_arg\n";
 
 	# zero pad month and day
 	return sprintf( '%u%02u%02u', $year, $month, $mday );
@@ -1972,8 +1972,8 @@ sub refresh_legacy {
 	# create parser and parse xls
 	my $xlsparser = Spreadsheet::ParseExcel->new();
 	my $workbook  = $xlsparser->parse($sched_xls)
-		or die "unable to parse spreadsheet: $sched_xls\n",
-		$xlsparser->error();
+		or say "unable to parse spreadsheet: $sched_xls\n",
+		$xlsparser->error() and return;
 	say 'done loading checklist into memory';
 
 	# iterate over each weekday (worksheets)

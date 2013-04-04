@@ -24,8 +24,9 @@ my ( $headerdate, $headertime, $dbdate ) = calc_datetime();
 
 # get POST params
 # parsed from CLI arg key/value pairs
-my ( $post_date, $legacy_filter, $dis_filter, $prev_search, $search_type, $upd_checked )
-	= ('') x 6;
+my ( $post_date,   $legacy_filter, $dis_filter,
+	 $prev_search, $search_type,   $upd_checked
+) = ('') x 6;
 
 my $upd_num = 0;
 
@@ -34,8 +35,7 @@ $legacy_filter = $cfg->legacy =~ REGEX_TRUE ? 'checked' : '';
 $dis_filter    = $cfg->dis =~ REGEX_TRUE ? 'checked' : '';
 $prev_search   = $cfg->search;
 $search_type   = $cfg->search_type;
-$upd_checked = $cfg->search_upd =~ REGEX_TRUE ? 'checked' : '';
-
+$upd_checked   = $cfg->search_upd =~ REGEX_TRUE ? 'checked' : '';
 
 if ( $legacy_filter && $dis_filter ) {
 	( $legacy_filter, $dis_filter ) = ( '', '' );
@@ -79,9 +79,7 @@ unless ( $post_date =~ m/(\d{4})(\d{2})(\d{2})/ ) {
 	$headertime = "[$headerdate $headertime]";
 	$headerdate = "$2/$3/$1";
 
-	
-
-	($dbdate, $upd_num) = ($post_date =~ m/(\d+)(?:-(\d+))?/);
+	( $dbdate, $upd_num ) = ( $post_date =~ m/(\d+)(?:-(\d+))?/ );
 }
 
 print_header();
@@ -94,7 +92,6 @@ print_thead(
 		Received_Time
 		Feed_Date
 		Update(UPD)
-		Timestamp
 		)
 );
 
@@ -229,9 +226,11 @@ sub print_table {
 
 	if ($prev_search) {
 		if ( $search_type eq 'Feed' ) {
-			$filter = $filter . " and UPPER(u.name) like UPPER('%$prev_search%')"
+			$filter
+				= $filter . " and UPPER(u.name) like UPPER('%$prev_search%')";
 		} elsif ( $search_type eq 'Feed_ID' ) {
-			$filter = $filter . " and UPPER(d.feed_id) like UPPER('%$prev_search%')"
+			$filter = $filter
+				. " and UPPER(d.feed_id) like UPPER('%$prev_search%')";
 		}
 	}
 
@@ -254,7 +253,7 @@ sub print_table {
 	if ($upd_checked) {
 		$filter = "and filedate = $dbdate";
 		if ($upd_num) {
-			$filter = $filter . " and filenum = $upd_num"
+			$filter = $filter . " and filenum = $upd_num";
 		}
 	}
 	my $select_history = "
@@ -266,6 +265,7 @@ sub print_table {
 		--and cast( floor( cast([timestamp] as float) ) as datetime) = '$headerdate'
 		order by feed_date desc
 	";
+
 	#warn $select_history and die;
 	#say 'executing sched query';
 	my $sched_aref = $dbh_sched->selectall_arrayref($select_schedule);
@@ -275,6 +275,7 @@ sub print_table {
 
 	#say 'iterating...';
 	my $row_count = 0;
+	my %display_rows;
 	for my $row_aref ( @{$sched_aref} ) {
 		$row_count++;
 		my ( $sched_id, $update_id, $sched_offset, $name, $is_legacy,
@@ -292,8 +293,11 @@ sub print_table {
 			 $update, $feed_date_pretty )
 			= row_info( $row_count,    $late,        $hist_id,
 						$sched_offset, $hist_offset, $hist_ts,
-						$filedate,     $filenum,     $feed_date, $prev_date
+						$filedate,     $filenum,     $feed_date,
+						$prev_date
 			);
+
+		$display_rows{$status}{$update} = [$row_class, $sched_time, $recvd_time, $daemon_ts, $feed_date_pretty ];
 
 		#say "found result: $hist_id";
 		say "
@@ -304,7 +308,6 @@ sub print_table {
 			<td>$recvd_time</td>
 			<td>$feed_date_pretty</td>
 			<td>$update</td>
-			<td>$daemon_ts</td>
 		</tr>";
 	}
 
@@ -312,24 +315,27 @@ sub print_table {
 
 # assign a style to row based on count
 sub row_info {
-	my ( $row_count,    $late,        $hist_id,
-		 $sched_offset, $hist_offset, $hist_ts,
-		 $filedate,     $filenum,     $feed_date, $prev_date
+	my ( $row_count,   $late,    $hist_id,  $sched_offset,
+		 $hist_offset, $hist_ts, $filedate, $filenum,
+		 $feed_date,   $prev_date
 	) = @_;
-	
 
+	$feed_date ||= 'N/A';
 	$feed_date =~ s/\s.*//;
-	
-	
+
 	my $row_parity = $row_count % 2;
 
 	my $sched_time = offset2time( $sched_offset, 1 );
 
 	# if there is a history record, it can be ontime or late
 	my ( $status, $daemon_ts, $recvd_time, $update );
-	if ($hist_id && !(date_math(-7) eq $feed_date)) {
+	if ( $hist_id && !( date_math(-7) eq $feed_date ) ) {
 		if ( $late eq 'N' || $late eq 'E' ) {
-			$status = 'recv';
+			if (!defined $prev_date && $late eq 'E' && date_math(-1) eq $feed_date && $sched_offset % 86400 < 10800) {
+				$status = 'wait';
+			} else {
+				$status = 'recv';
+			}
 		} else {
 			$status = 'late';
 		}
@@ -340,24 +346,16 @@ sub row_info {
 		$update     = $filedate ? "$filedate-$filenum" : 'N/A';
 	}
 
-
 	# no history record, still waiting
-	else  {
+	else {
 		$recvd_time = 'N/A';
 		$status     = 'wait';
 		$daemon_ts  = 'N/A';
 		$update     = 'N/A';
+		$feed_date  = 'N/A';
 	}
 
-
-	$feed_date ||= 'N/A';
-
-	
-
-
-
 	my $row_class = $status . ( $row_parity ? '_even' : '_odd' );
-
 
 	return ( $row_class, $status, $sched_time, $recvd_time,
 			 $daemon_ts, $update, $feed_date );
@@ -437,15 +435,20 @@ sub offset2time {
 		# if there are still extra hours due to bad offset conversion, correct
 		$hours %= 24;
 		$minutes = int( $into_previous / 60 );
-	#	$past_flag = 0 if $offset == -1;
+
+		#	$past_flag = 0 if $offset == -1;
 	}
 
 	# TODO: change this to display actual date
 	my $date_display = '';
 	if ( $past_flag && !$sched_flag ) {
 		$date_display = date_math(-1) || 'prev day';
-
-	} elsif ($fut_flag) {
+	
+	} 
+	elsif ($sched_flag) {
+		$date_display = date_math(0);
+	}
+	elsif ($fut_flag) {
 		$date_display = date_math( -$fut_flag + 1 ) || "$fut_flag future?";
 	}
 

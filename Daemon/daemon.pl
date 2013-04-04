@@ -56,7 +56,6 @@ while ( ++$run_counter ) {
 	say 'got new db handles, running tasks';
 
 	refresh();
-
 	say 'daemon run finished, slaying db handles';
 	kill_handles( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
 				  $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 );
@@ -66,26 +65,30 @@ while ( ++$run_counter ) {
 }
 
 sub refresh {
-	my ($year, $month, $day) = get_today();
+	my ( $year, $month, $day ) = get_today();
+
 	#my ($year, $month, $day) = (2013,4,2);
-	
+
 	#my ($tyear, $tmonth, $tday) = get_tomorrow();
 	# TODO: spawn background refreshes for other days
-	refresh_dis($year, $month, $day);
+	refresh_dis( $year, $month, $day );
+
 	#refresh_dis($tyear, $tmonth, $tday);
-	refresh_legacy($year, $month, $day);
+	refresh_legacy( $year, $month, $day );
+
 	#exit;
 }
 
 sub get_today {
 	my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst )
 		= gmtime(time);
-	return ($year + 1900, $mon + 1, $mday);
+	return ( $year + 1900, $mon + 1, $mday );
 }
 
 sub get_tomorrow {
-	my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst ) = gmtime(time + 86400);
-	return ($year + 1900, $mon + 1, $mday);
+	my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst )
+		= gmtime( time + 86400 );
+	return ( $year + 1900, $mon + 1, $mday );
 }
 
 # write to log when daemon exits (catches most cases)

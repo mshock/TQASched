@@ -217,7 +217,7 @@ sub define_defaults {
 		default_enable_warn => { DEFAULT => 1,
 								 ALIAS   => 'enable_warn',
 		},
-		default_late_threshold => { DEFAULT => 3600,
+		default_late_threshold => { DEFAULT => 0,
 									ALIAS   => 'late_threshold',
 		},
 		default_sql_definitions => { DEFAULT => 'Config/TQASched.sql',

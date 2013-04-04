@@ -451,6 +451,9 @@ sub offset2time {
 	elsif ($fut_flag) {
 		$date_display = date_math( -$fut_flag + 1 ) || "$fut_flag future?";
 	}
+	else {
+		$date_display = date_math(0);
+	}
 
 	# do a sanity check on hours/minutes
 	if ( $hours < 0 || $minutes < 0 ) {

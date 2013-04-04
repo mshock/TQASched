@@ -962,7 +962,7 @@ sub update_history {
 	# or skip if it was already recvd
 	# otherwise, insert
 	my ( $hist_id, $late, $fd, $fn ) = $dbh_sched->selectrow_array( "
-		select hist_id, late, filedate, filenum
+		select hist_id, late, filedate, filenum, transnum
 		from [TQASched].dbo.Update_History
 		where  sched_id = $sched_id
 		and feed_date = '$feed_date'
@@ -973,6 +973,7 @@ sub update_history {
 	# check if just the transaction number needs to be updated
 	my $update_trans_flag = 0;
 	if ( !$hist_id && $fd_q && $fn_q ) {
+
 		my $old_trans_num;
 		( $hist_id, $old_trans_num ) = $dbh_sched->selectrow_array( "
 		select hist_id, transnum, feed_date
@@ -981,8 +982,22 @@ sub update_history {
 		and filedate = $fd_q
 		and filenum = $fn_q
 	" );
-		$update_trans_flag = 1
-			if defined $old_trans_num && $old_trans_num != $trans_num;
+#		say "select hist_id, transnum, feed_date
+#		from [TQASched].dbo.Update_History
+#		where  sched_id = $sched_id
+#		and filedate = $fd_q
+#		and filenum = $fn_q";
+		#say "$old_trans_num $trans_num";
+		if (defined $old_trans_num && $old_trans_num != $trans_num) {
+			say "\tnew transaction number";
+			$update_trans_flag = 1;
+		}
+		elsif (! defined $old_trans_num) {
+			if ($late_q eq 'Y') {
+				say "\tnext trans number, skip"; 	
+				return;
+			}
+		}
 	}
 
 	# recvd already, return
@@ -1008,6 +1023,7 @@ sub update_history {
 			return;
 		}
 
+
 		say "\t$update_id updating: "
 			. ( $update_trans_flag
 				? '(latest transnum)'
@@ -1025,7 +1041,14 @@ sub update_history {
 	elsif ( ( !$hist_id && $fd_q && $fn_q )
 			|| $trans_offset == -1 && $trans_num != -1 )
 	{
-
+		
+		
+		
+#		if ($update_trans_flag) {
+#			say "\t\trecvd new transnum (next), skipping";
+#			return;
+#		}
+		
   # handle legacy miss, mark as recvd but without details due to parsing error
 		if ( $trans_offset == -1 && !$is_legacy ) {
 			say "\t$update_id DIS not done today yet";

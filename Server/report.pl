@@ -236,7 +236,7 @@ sub print_table {
 	}
 
 	my $select_schedule = "
-	  select distinct us.sched_id, us.update_id, us.sched_epoch, u.name, u.is_legacy, d.feed_id
+	  select distinct us.sched_id, us.update_id, us.sched_epoch, u.name, u.is_legacy, d.feed_id, u.prev_date
 	  from [TQASched].[dbo].[Update_Schedule] us,
 	  [TQASched].[dbo].[Updates] u
 	  left join
@@ -278,7 +278,7 @@ sub print_table {
 	for my $row_aref ( @{$sched_aref} ) {
 		$row_count++;
 		my ( $sched_id, $update_id, $sched_offset, $name, $is_legacy,
-			 $feed_id )
+			 $feed_id, $prev_date )
 			= @{$row_aref};
 		$hist_query->execute($sched_id);
 		my ( $hist_id, $hist_offset, $filedate, $filenum, $hist_ts, $late,
@@ -292,7 +292,7 @@ sub print_table {
 			 $update, $feed_date_pretty )
 			= row_info( $row_count,    $late,        $hist_id,
 						$sched_offset, $hist_offset, $hist_ts,
-						$filedate,     $filenum,     $feed_date
+						$filedate,     $filenum,     $feed_date, $prev_date
 			);
 
 		#say "found result: $hist_id";
@@ -314,15 +314,20 @@ sub print_table {
 sub row_info {
 	my ( $row_count,    $late,        $hist_id,
 		 $sched_offset, $hist_offset, $hist_ts,
-		 $filedate,     $filenum,     $feed_date
+		 $filedate,     $filenum,     $feed_date, $prev_date
 	) = @_;
+	
+
+	$feed_date =~ s/\s.*//;
+	
+	
 	my $row_parity = $row_count % 2;
 
 	my $sched_time = offset2time( $sched_offset, 1 );
 
 	# if there is a history record, it can be ontime or late
 	my ( $status, $daemon_ts, $recvd_time, $update );
-	if ($hist_id) {
+	if ($hist_id && !(date_math(-7) eq $feed_date)) {
 		if ( $late eq 'N' || $late eq 'E' ) {
 			$status = 'recv';
 		} else {
@@ -335,19 +340,24 @@ sub row_info {
 		$update     = $filedate ? "$filedate-$filenum" : 'N/A';
 	}
 
+
 	# no history record, still waiting
-	else {
+	else  {
 		$recvd_time = 'N/A';
 		$status     = 'wait';
 		$daemon_ts  = 'N/A';
 		$update     = 'N/A';
 	}
 
+
 	$feed_date ||= 'N/A';
 
-	$feed_date =~ s/\s.*//;
+	
+
+
 
 	my $row_class = $status . ( $row_parity ? '_even' : '_odd' );
+
 
 	return ( $row_class, $status, $sched_time, $recvd_time,
 			 $daemon_ts, $update, $feed_date );

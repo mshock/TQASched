@@ -171,7 +171,7 @@ sub define_defaults {
 			ALIAS => 'search_type',
 		},
 		report_float_status => {
-			DEFAULT => 'true',
+			DEFAULT => '',
 			ARGS => ':s',
 			ALIAS => 'float_status',
 		},

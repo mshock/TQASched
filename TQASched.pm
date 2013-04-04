@@ -415,7 +415,7 @@ sub extract_row_init {
 
 	# get formatted excel value for most columns
 	my $value = $cell ? $cell->value() : undef;
-
+	
 	given ($col) {
 
 		# CT scheduled time
@@ -518,6 +518,7 @@ sub extract_row_daemon {
 
 	# get formatted excel value for most columns
 	my $value = $cell ? $cell->value() : '';
+	#say $value;
 	given ($col) {
 
 		# time scheduled/expected
@@ -544,7 +545,10 @@ sub extract_row_daemon {
 
 		# file date
 		when (/^4$/) {
-			return unless $value;
+			unless ($value) {
+				say "\terror parsing date field";
+				return;
+			}
 
 			# extract unformatted datetime and convert to filedate integer
 			my $time_excel = $cell->unformatted();
@@ -1000,7 +1004,7 @@ sub update_history {
 			say "\tnew transaction number";
 			$update_trans_flag = 1;
 		} elsif ( !defined $old_trans_num ) {
-			if ( $late_q eq 'Y' ) {
+			if ( ($late_q eq 'Y' || $late_q eq 'E') && !$is_legacy) {
 				say "\tnext trans number, skip";
 				return;
 			}
@@ -1093,14 +1097,6 @@ sub update_history {
 	# otherwise, it is late/wait and has no filedate filenum, insert
 	else {
 		say "\t$update_id no history found";
-
-# somewhere in the logic multiple schedules are getting associated with the wrong weekday
-# throw out any inserts where weekday match between sched_id and feed_id
-
-		#		if (get_sched_wd($sched_id) != get_wd($feed_date)) {
-		#			say "\t\tmismatch $sched_id : $feed_date";
-		#			return;
-		#		}
 
 		$trans_num = 'NULL' if $trans_num != -1;
 		my $insert_hist = "
@@ -2025,11 +2021,12 @@ sub refresh_legacy {
 		my ( $row_min, $row_max ) = $worksheet->row_range();
 
 		my $sched_block = '';
-
 		# iterate over each row and store scheduling data
 		for ( my $row = $row_min; $row <= $row_max; $row++ ) {
+			
 			next if $row <= 1;
-
+			
+			
 			# per-update hash of column values
 			my $row_data = {};
 			for ( my $col = $col_min; $col <= $col_max; $col++ ) {
@@ -2047,16 +2044,32 @@ sub refresh_legacy {
 			}
 
 			# skip unless update name filled in
-			next
-				unless exists $row_data->{update};
+			
+				unless (exists $row_data->{update}) {
+					#say "\tblank row, skip";
+					next;
+				}
 
 			my $name      = $row_data->{update};
+			
 			my $update_id = get_update_id($name);
 			unless ($update_id) {
-				warn "could not find update ID for $name";
+				say "\tcould not find update ID for $name";
 				next;
 			}
-
+			say "\t$name\t$update_id";
+			# correct weekday for border cases
+			my $border_flag = 0;
+			my $tmp_weekday_code;
+			if ($update_id == 406 || $update_id == 405 || $update_id == 403 || $update_id == 407 || $update_id == 408) {
+				say "\tfixing border weekday from $weekday_code";
+				$tmp_weekday_code = $weekday_code;
+				$weekday_code++;
+				$weekday_code = 0 if $weekday_code == 7;
+				$border_flag = 1;
+			} 
+			
+			
 			my $sched_query = "
 				select sched_epoch, sched_id 
 				from TQASched.dbo.Update_Schedule us
@@ -2067,13 +2080,22 @@ sub refresh_legacy {
 			my ( $sched_offset, $sched_id )
 				= $dbh_sched->selectrow_array($sched_query);
 
-			unless ($sched_offset) {
-
+			unless (defined $sched_offset) {
+				say "\toffset not defined";
+				#say $sched_query;
 #open TEST, '>>testing.log';
 #say TEST "no schedule entry for $name : $update_id on weekday $weekday_code";
 #close TEST;
 				next;
 			}
+
+#			if ($border_flag) {
+#				$sched_offset -= 86400; 
+#			}
+			if ($border_flag) {
+				$weekday_code = $tmp_weekday_code;
+			}
+			
 
 			my ( $trans_ts, $trans_offset, $trans_num ) = ( 0, -1, -1 );
 			if (    $row_data->{filedate}

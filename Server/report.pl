@@ -40,6 +40,9 @@ $prev_search   = $cfg->search;
 $search_type   = $cfg->search_type;
 $upd_checked   = $cfg->search_upd =~ REGEX_TRUE ? 'checked' : '';
 
+
+
+
 if ( $legacy_filter && $dis_filter ) {
 	( $legacy_filter, $dis_filter ) = ( '', '' );
 }
@@ -222,58 +225,6 @@ sub calc_adjacent {
 	);
 }
 
-sub print_table {
-	my ($rows_ref) = @_;
-	my %display_rows = %{$rows_ref};
-
-	say Dumper(%display_rows);
-	for my $sched_id_key ( sort keys %{ $display_rows{late} } ) {
-		my ( $name, $row_class, $update_id, $feed_id, $sched_time,
-			 $recvd_time, $feed_date_pretty, $update )
-			= @{ $display_rows{late}{$sched_id_key} };
-
-		say "
-		<tr class='$row_class'>
-			<td>$name [$update_id]</td>
-			<td>$feed_id</td>
-			<td>$sched_time</td>
-			<td>$recvd_time</td>
-			<td>$feed_date_pretty</td>
-			<td>$update</td>
-		</tr>";
-	}
-	for my $sched_id_key ( sort keys %{ $display_rows{wait} } ) {
-		my ( $name, $row_class, $update_id, $feed_id, $sched_time,
-			 $recvd_time, $feed_date_pretty, $update )
-			= @{ $display_rows{late}{$sched_id_key} };
-
-		say "
-		<tr class='$row_class'>
-			<td>$name [$update_id]</td>
-			<td>$feed_id</td>
-			<td>$sched_time</td>
-			<td>$recvd_time</td>
-			<td>$feed_date_pretty</td>
-			<td>$update</td>
-		</tr>";
-	}
-	for my $sched_id_key ( sort keys %{ $display_rows{recv} } ) {
-		my ( $name, $row_class, $update_id, $feed_id, $sched_time,
-			 $recvd_time, $feed_date_pretty, $update )
-			= @{ $display_rows{late}{$sched_id_key} };
-
-		say "
-		<tr class='$row_class'>
-			<td>$name [$update_id]</td>
-			<td>$feed_id</td>
-			<td>$sched_time</td>
-			<td>$recvd_time</td>
-			<td>$feed_date_pretty</td>
-			<td>$update</td>
-		</tr>";
-	}
-}
-
 sub compile_table {
 
 	say "<tbody>";
@@ -302,14 +253,17 @@ sub compile_table {
 
 	my $select_schedule = "
 	  select distinct us.sched_id, us.update_id, us.sched_epoch, u.name, u.is_legacy, d.feed_id, u.prev_date
-	  from [TQASched].[dbo].[Update_Schedule] us,
+	  from [TQASched].[dbo].[Update_Schedule] us
+	  join
 	  [TQASched].[dbo].[Updates] u
+	  on u.update_id = us.update_id and weekday = $wd
 	  left join
 	  [TQASched].[dbo].[Update_DIS] d
-	  on d.update_id = u.update_id
-	  where weekday = $wd
-      and u.update_id = us.update_id
-      and d.feed_id NOT LIKE 'FIEJV%'
+	  on d.update_id = u.update_id 
+	  where 
+	  --weekday = $wd
+      --and u.update_id = us.update_id
+      d.feed_id NOT LIKE 'FIEJV%'
       and d.feed_id NOT LIKE 'RDC%'
       $filter
       order by sched_epoch, name asc
@@ -404,18 +358,43 @@ sub compile_table {
 
 	return unless $float_status;
 	#print Dumper(%display_rows);
+	$row_count = 0;
 	for my $line ( @{ $display_rows{late} } ) {
+		my $row_parity = $row_count % 2;
+		if ($row_parity) {
+			$line =~ s/_even/_odd/;
+		}
+		else {
+			$line =~ s/_odd/_even/;
+		}
 		say $line;
+		$row_count++;
 	}
-
+	$row_count = 0;
 	for my $line ( @{ $display_rows{wait} } ) {
-
+		my $row_parity = $row_count % 2;
+		if ($row_parity) {
+			$line =~ s/_even/_odd/;
+		}
+		else {
+			$line =~ s/_odd/_even/;
+		}
 		say $line;
+		
+		$row_count++;
 	}
-
+	$row_count = 0;
 	for my $line ( @{ $display_rows{recv} } ) {
-
+		my $row_parity = $row_count % 2;
+		if ($row_parity) {
+			$line =~ s/_even/_odd/;
+		}
+		else {
+			$line =~ s/_odd/_even/;
+		}
 		say $line;
+		
+		$row_count++;
 	}
 
 }
@@ -469,6 +448,10 @@ sub row_info {
 	}
 
 	my $row_class = $status . ( $row_parity ? '_even' : '_odd' );
+
+#	if ($status eq 'wait' && ) {
+#		
+#	} 
 
 	return ( $row_class, $status, $sched_time, $recvd_time,
 			 $daemon_ts, $update, $feed_date );
@@ -565,7 +548,8 @@ sub offset2time {
 		$date_display = date_math( -$fut_flag + 1 ) || "$fut_flag future?";
 	}
 	else {
-		$date_display = date_math(0);
+		my $math = $offset ? 0 : -1;
+		$date_display = date_math($math);
 	}
 
 	# do a sanity check on hours/minutes

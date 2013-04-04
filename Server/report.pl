@@ -6,9 +6,11 @@
 use strict;
 use feature qw(say switch);
 use Time::Local qw(timegm);
-
+use Data::Dumper;
 use lib '..';
 use TQASched;
+
+
 
 my $cfg     = load_conf('..');
 my $refresh = $cfg->refresh;
@@ -25,11 +27,12 @@ my ( $headerdate, $headertime, $dbdate ) = calc_datetime();
 # get POST params
 # parsed from CLI arg key/value pairs
 my ( $post_date,   $legacy_filter, $dis_filter,
-	 $prev_search, $search_type,   $upd_checked
-) = ('') x 6;
+	 $prev_search, $search_type,   $upd_checked, $float_status
+) = ('') x 7;
 
 my $upd_num = 0;
 
+$float_status = $cfg->float_status =~ REGEX_TRUE ? 'checked' : '';
 $post_date     = $cfg->date;
 $legacy_filter = $cfg->legacy =~ REGEX_TRUE ? 'checked' : '';
 $dis_filter    = $cfg->dis =~ REGEX_TRUE ? 'checked' : '';
@@ -44,7 +47,8 @@ if ( $legacy_filter && $dis_filter ) {
 my ( $id_selected, $feed_selected ) = ('') x 2;
 if ( $search_type eq 'Feed' ) {
 	$feed_selected = 'selected';
-} elsif ( $search_type eq 'Feed_ID' ) {
+}
+elsif ( $search_type eq 'Feed_ID' ) {
 	$id_selected = 'selected';
 }
 
@@ -72,7 +76,8 @@ unless ( $post_date =~ m/(\d{4})(\d{2})(\d{2})/ ) {
 				   }
 		);
 	}
-} else {
+}
+else {
 
 	# header time shows current when in a different date
 
@@ -95,7 +100,9 @@ print_thead(
 		)
 );
 
-print_table();
+compile_table();
+
+#print_table($rows_ref);
 
 print_footer();
 
@@ -164,6 +171,11 @@ sub print_thead {
 				</th>
 			</tr>
 			<tr>
+				<th colspan='$num_headers'>
+					<input type='checkbox' name='float_status' value='true' $float_status /> Float Status
+				</th>
+			</tr>
+			<tr>
 				<th colspan='2'><a href='?date=$prevdate'><<</a> previous ($prevdate)</th>
 				<th colspan='5'>($nextdate) next <a href='?date=$nextdate'>>></a></th>
 			</tr>
@@ -211,6 +223,58 @@ sub calc_adjacent {
 }
 
 sub print_table {
+	my ($rows_ref) = @_;
+	my %display_rows = %{$rows_ref};
+
+	say Dumper(%display_rows);
+	for my $sched_id_key ( sort keys %{ $display_rows{late} } ) {
+		my ( $name, $row_class, $update_id, $feed_id, $sched_time,
+			 $recvd_time, $feed_date_pretty, $update )
+			= @{ $display_rows{late}{$sched_id_key} };
+
+		say "
+		<tr class='$row_class'>
+			<td>$name [$update_id]</td>
+			<td>$feed_id</td>
+			<td>$sched_time</td>
+			<td>$recvd_time</td>
+			<td>$feed_date_pretty</td>
+			<td>$update</td>
+		</tr>";
+	}
+	for my $sched_id_key ( sort keys %{ $display_rows{wait} } ) {
+		my ( $name, $row_class, $update_id, $feed_id, $sched_time,
+			 $recvd_time, $feed_date_pretty, $update )
+			= @{ $display_rows{late}{$sched_id_key} };
+
+		say "
+		<tr class='$row_class'>
+			<td>$name [$update_id]</td>
+			<td>$feed_id</td>
+			<td>$sched_time</td>
+			<td>$recvd_time</td>
+			<td>$feed_date_pretty</td>
+			<td>$update</td>
+		</tr>";
+	}
+	for my $sched_id_key ( sort keys %{ $display_rows{recv} } ) {
+		my ( $name, $row_class, $update_id, $feed_id, $sched_time,
+			 $recvd_time, $feed_date_pretty, $update )
+			= @{ $display_rows{late}{$sched_id_key} };
+
+		say "
+		<tr class='$row_class'>
+			<td>$name [$update_id]</td>
+			<td>$feed_id</td>
+			<td>$sched_time</td>
+			<td>$recvd_time</td>
+			<td>$feed_date_pretty</td>
+			<td>$update</td>
+		</tr>";
+	}
+}
+
+sub compile_table {
 
 	say "<tbody>";
 
@@ -220,7 +284,8 @@ sub print_table {
 	my $filter = '';
 	if ($legacy_filter) {
 		$filter = 'and u.is_legacy = 1';
-	} elsif ($dis_filter) {
+	}
+	elsif ($dis_filter) {
 		$filter = 'and u.is_legacy = 0';
 	}
 
@@ -228,7 +293,8 @@ sub print_table {
 		if ( $search_type eq 'Feed' ) {
 			$filter
 				= $filter . " and UPPER(u.name) like UPPER('%$prev_search%')";
-		} elsif ( $search_type eq 'Feed_ID' ) {
+		}
+		elsif ( $search_type eq 'Feed_ID' ) {
 			$filter = $filter
 				. " and UPPER(d.feed_id) like UPPER('%$prev_search%')";
 		}
@@ -297,10 +363,9 @@ sub print_table {
 						$prev_date
 			);
 
-		$display_rows{$status}{$update} = [$row_class, $sched_time, $recvd_time, $daemon_ts, $feed_date_pretty ];
-
-		#say "found result: $hist_id";
-		say "
+		#say "inserting $status, $sched_id";
+		if ($float_status) {
+			push @{ $display_rows{$status} }, "
 		<tr class='$row_class'>
 			<td>$name [$update_id]</td>
 			<td>$feed_id</td>
@@ -309,6 +374,48 @@ sub print_table {
 			<td>$feed_date_pretty</td>
 			<td>$update</td>
 		</tr>";
+		}
+		else {
+			say "
+		<tr class='$row_class'>
+			<td>$name [$update_id]</td>
+			<td>$feed_id</td>
+			<td>$sched_time</td>
+			<td>$recvd_time</td>
+			<td>$feed_date_pretty</td>
+			<td>$update</td>
+		</tr>";
+		}
+		
+
+#push @{$display_rows{$status}}, [$sched_id, $name, $row_class, $sched_time, $recvd_time, $daemon_ts, $update, $feed_date_pretty ];
+#say $display_rows{$status}->[0]->[1];
+#say Dumper($display_rows{$status});
+#		say "
+#		<tr class='$row_class'>
+#			<td>$name [$update_id]</td>
+#			<td>$feed_id</td>
+#			<td>$sched_time</td>
+#			<td>$recvd_time</td>
+#			<td>$feed_date_pretty</td>
+#			<td>$update</td>
+#		</tr>";
+	}
+
+	return unless $float_status;
+	#print Dumper(%display_rows);
+	for my $line ( @{ $display_rows{late} } ) {
+		say $line;
+	}
+
+	for my $line ( @{ $display_rows{wait} } ) {
+
+		say $line;
+	}
+
+	for my $line ( @{ $display_rows{recv} } ) {
+
+		say $line;
 	}
 
 }
@@ -331,12 +438,18 @@ sub row_info {
 	my ( $status, $daemon_ts, $recvd_time, $update );
 	if ( $hist_id && !( date_math(-7) eq $feed_date ) ) {
 		if ( $late eq 'N' || $late eq 'E' ) {
-			if (!defined $prev_date && $late eq 'E' && date_math(-1) eq $feed_date && $sched_offset % 86400 < 10800) {
+			if (    !defined $prev_date
+				 && $late eq 'E'
+				 && date_math(-1) eq $feed_date
+				 && $sched_offset % 86400 < 10800 )
+			{
 				$status = 'wait';
-			} else {
+			}
+			else {
 				$status = 'recv';
 			}
-		} else {
+		}
+		else {
 			$status = 'late';
 		}
 
@@ -443,8 +556,8 @@ sub offset2time {
 	my $date_display = '';
 	if ( $past_flag && !$sched_flag ) {
 		$date_display = date_math(-1) || 'prev day';
-	
-	} 
+
+	}
 	elsif ($sched_flag) {
 		$date_display = date_math(0);
 	}

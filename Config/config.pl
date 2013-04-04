@@ -170,6 +170,11 @@ sub define_defaults {
 			ARGS => ':s',
 			ALIAS => 'search_type',
 		},
+		report_float_status => {
+			DEFAULT => 'true',
+			ARGS => ':s',
+			ALIAS => 'float_status',
+		},
 
 # refresh rate for the report page - can't be less than 10, and 0 means never.
 # (in seconds)

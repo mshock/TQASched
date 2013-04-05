@@ -76,7 +76,6 @@ sub refresh {
 	#refresh_dis($tyear, $tmonth, $tday);
 	refresh_legacy( $year, $month, $day );
 
-	#exit;
 }
 
 sub get_today {

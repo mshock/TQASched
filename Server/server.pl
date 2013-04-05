@@ -61,7 +61,7 @@ sub handle_request {
 	}
 
 	# static serve web directory for css, generated charts (later, ajax)
-	if ( $cgi->path_info =~ m/\.(css|xls|js|ico)/ ) {
+	if ( $cgi->path_info =~ m/\.(css|xls|js|ico|jpg|gif)/ ) {
 		$self->serve_static( $cgi, 'Resources' );
 		return;
 	}

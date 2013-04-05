@@ -10,8 +10,6 @@ use Data::Dumper;
 use lib '..';
 use TQASched;
 
-
-
 my $cfg     = load_conf('..');
 my $refresh = $cfg->refresh;
 
@@ -26,33 +24,41 @@ my ( $headerdate, $headertime, $dbdate ) = calc_datetime();
 
 # get POST params
 # parsed from CLI arg key/value pairs
-my ( $post_date,   $legacy_filter, $dis_filter,
-	 $prev_search, $search_type,   $upd_checked, $float_status
-) = ('') x 7;
+my ( $post_date,   $legacy_filter, $dis_filter,   $prev_search,
+	 $search_type, $upd_checked,   $float_status, $report_title
+) = ('') x 8;
 
 my $upd_num = 0;
 
-$float_status = $cfg->float_status =~ REGEX_TRUE ? 'checked' : '';
+$float_status  = $cfg->float_status =~ REGEX_TRUE ? 'checked' : '';
 $post_date     = $cfg->date;
 $legacy_filter = $cfg->legacy =~ REGEX_TRUE ? 'checked' : '';
 $dis_filter    = $cfg->dis =~ REGEX_TRUE ? 'checked' : '';
 $prev_search   = $cfg->search;
 $search_type   = $cfg->search_type;
 $upd_checked   = $cfg->search_upd =~ REGEX_TRUE ? 'checked' : '';
+$report_title  = $cfg->title || 'Monitor :: TQASched';
 
-
-
+my $debug_mode = $cfg->debug;
 
 if ( $legacy_filter && $dis_filter ) {
 	( $legacy_filter, $dis_filter ) = ( '', '' );
 }
 
-my ( $id_selected, $feed_selected ) = ('') x 2;
-if ( $search_type eq 'Feed' ) {
+# TODO use switch or hash
+my ( $id_selected, $feed_selected, $time_selected, $feed_date_selected )
+	= ('') x 4;
+if ( uc $search_type eq 'FEED' ) {
 	$feed_selected = 'selected';
 }
-elsif ( $search_type eq 'Feed_ID' ) {
+elsif ( uc $search_type eq 'FEED_ID' ) {
 	$id_selected = 'selected';
+}
+elsif ( uc $search_type eq 'SCHEDULE_TIME' ) {
+	$time_selected = 'selected';
+}
+elsif ( uc $search_type eq 'FEED_DATE' ) {
+	$feed_date_selected = 'selected';
 }
 
 ######################################################
@@ -131,15 +137,28 @@ sub print_header {
 <html>
 	<head>
 	$header_refresh
-	<title>Monitor :: TQASched</title>
+	<title>$report_title</title>
 	<link rel='stylesheet' type='text/css' href='styles.css' />
+	<script language=\"javascript\" type=\"text/javascript\">
+		<!--
+		function popitup(url) {
+			newwindow=window.open(url,'name','height=200,width=150');
+			if (window.focus) {newwindow.focus()}
+			return false;
+		}
+		
+		// -->
+	</script>
 	</head>
 	<body>
 ";
 }
 
 sub print_thead {
-	my @headers     = @_;
+	my @headers = @_;
+	if ($debug_mode) {
+		push @headers, 'Timestamp';
+	}
 	my $num_headers = scalar @headers;
 	my ( $prevdate, $nextdate ) = calc_adjacent();
 
@@ -155,12 +174,16 @@ sub print_thead {
 			</tr>
 			<tr>
 				<th colspan='$num_headers'>
-					<input type='checkbox' name='search_upd' value='true' title='search by UPD filedate[-filenum]' $upd_checked/> UPD
+					<input type='checkbox' name='search_upd' value='true' title='search by UPD filedate[-filenum]' id='upd_search' $upd_checked/>
+						<label for='upd_search'>UPD</label>
 					<input type='text' name='date' value='$dbdate' />
-					<input type='text' name='search' value='$prev_search' title='Search'/>
+					<input type='text' name='search' value='$prev_search' title='search' id='search_box'/>
+						<label for='search_box'>search by</label>
 				<select name='search_type'>
 					<option value='Feed'  $feed_selected>Feed Name</option>
 					<option value='Feed_ID'  $id_selected>Feed ID</option>
+					<option value='Schedule_Time'  $time_selected>Schedule Time</option>
+					<option value='Feed_Date'  $feed_date_selected>Feed Date</option>
 				</select>
 				<input type='submit' value='search' />
 				</th>
@@ -168,14 +191,17 @@ sub print_thead {
 			
 			<tr>
 				<th colspan='$num_headers'>
-					<input type='radio' name='filter_legacy' value='true' onclick='this.form.submit();' $legacy_filter/> Only Legacy
-					<input type='radio' name='filter_dis' value='true' onclick='this.form.submit();' $dis_filter/> Only DIS
+					<input type='radio' id='legacy_cb' name='filter_legacy' value='true' onclick='this.form.submit();' $legacy_filter/>
+						<label for='legacy_cb'>Only Legacy</label>
+					<input type='radio' id='dis_cb' name='filter_dis' value='true' onclick='this.form.submit();' $dis_filter/>
+						<label for='dis_cb'>Only DIS</label>	
 					<input type='button' value='reset' onclick='parent.location=\"/\"' />
 				</th>
 			</tr>
 			<tr>
 				<th colspan='$num_headers'>
-					<input type='checkbox' name='float_status' value='true' onclick='this.form.submit();' $float_status /> Float Status
+					<input type='checkbox' id='float_stat_cb' name='float_status' value='true' onclick='this.form.submit();' $float_status />
+						<label for='float_stat_cb'>Float Status</label>
 				</th>
 			</tr>
 			<tr>
@@ -317,86 +343,47 @@ sub compile_table {
 						$prev_date
 			);
 
+		my $update_row = sprintf( "
+		<tr class='$row_class'>
+			<td>%s\t%s</td>
+			<td>%s</td>
+			<td>%s</td>
+			<td>%s</td>
+			<td>%s</td>
+			<td>%s</td>
+			%s
+		</tr>
+		",
+			$name, ( $debug_mode ? "[$update_id]" : '' ), $feed_id,
+			$sched_time, $recvd_time, $feed_date_pretty, $update,
+			( $debug_mode ? "<td>$daemon_ts</td>" : '' ) );
+
 		#say "inserting $status, $sched_id";
 		if ($float_status) {
-			push @{ $display_rows{$status} }, "
-		<tr class='$row_class'>
-			<td>$name [$update_id]</td>
-			<td>$feed_id</td>
-			<td>$sched_time</td>
-			<td>$recvd_time</td>
-			<td>$feed_date_pretty</td>
-			<td>$update</td>
-		</tr>";
+			push @{ $display_rows{$status} }, $update_row;
 		}
 		else {
-			say "
-		<tr class='$row_class'>
-			<td>$name [$update_id]</td>
-			<td>$feed_id</td>
-			<td>$sched_time</td>
-			<td>$recvd_time</td>
-			<td>$feed_date_pretty</td>
-			<td>$update</td>
-		</tr>";
+			say $update_row;
 		}
-		
-
-#push @{$display_rows{$status}}, [$sched_id, $name, $row_class, $sched_time, $recvd_time, $daemon_ts, $update, $feed_date_pretty ];
-#say $display_rows{$status}->[0]->[1];
-#say Dumper($display_rows{$status});
-#		say "
-#		<tr class='$row_class'>
-#			<td>$name [$update_id]</td>
-#			<td>$feed_id</td>
-#			<td>$sched_time</td>
-#			<td>$recvd_time</td>
-#			<td>$feed_date_pretty</td>
-#			<td>$update</td>
-#		</tr>";
 	}
-
 	return unless $float_status;
-	#print Dumper(%display_rows);
-	$row_count = 0;
-	for my $line ( @{ $display_rows{late} } ) {
-		my $row_parity = $row_count % 2;
-		if ($row_parity) {
-			$line =~ s/_even/_odd/;
-		}
-		else {
-			$line =~ s/_odd/_even/;
-		}
-		say $line;
-		$row_count++;
-	}
-	$row_count = 0;
-	for my $line ( @{ $display_rows{wait} } ) {
-		my $row_parity = $row_count % 2;
-		if ($row_parity) {
-			$line =~ s/_even/_odd/;
-		}
-		else {
-			$line =~ s/_odd/_even/;
-		}
-		say $line;
-		
-		$row_count++;
-	}
-	$row_count = 0;
-	for my $line ( @{ $display_rows{recv} } ) {
-		my $row_parity = $row_count % 2;
-		if ($row_parity) {
-			$line =~ s/_even/_odd/;
-		}
-		else {
-			$line =~ s/_odd/_even/;
-		}
-		say $line;
-		
-		$row_count++;
-	}
 
+	my @stati = qw(late wait recv);
+	for my $status_key (@stati) {
+		$row_count = 0;
+		for my $line ( @{ $display_rows{$status_key} } ) {
+			my $row_parity = $row_count % 2;
+			if ($row_parity) {
+				$line =~ s/_even/_odd/;
+			}
+			else {
+				$line =~ s/_odd/_even/;
+			}
+			say $line;
+			$row_count++;
+		}
+
+	}
 }
 
 # assign a style to row based on count
@@ -449,9 +436,9 @@ sub row_info {
 
 	my $row_class = $status . ( $row_parity ? '_even' : '_odd' );
 
-#	if ($status eq 'wait' && ) {
-#		
-#	} 
+	#	if ($status eq 'wait' && ) {
+	#
+	#	}
 
 	return ( $row_class, $status, $sched_time, $recvd_time,
 			 $daemon_ts, $update, $feed_date );
@@ -545,7 +532,8 @@ sub offset2time {
 		$date_display = date_math(0);
 	}
 	elsif ($fut_flag) {
-		$date_display = date_math( -$fut_flag + 1 ) || "$fut_flag future?";
+		$date_display = date_math( -$fut_flag + 1 )
+			|| "$fut_flag future?";
 	}
 	else {
 		my $math = $offset ? 0 : -1;

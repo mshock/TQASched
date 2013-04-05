@@ -175,6 +175,11 @@ sub define_defaults {
 			ARGS => ':s',
 			ALIAS => 'float_status',
 		},
+		# optional window title, useful for side-by-side comparisons
+		report_title => {
+			DEFAULT => '',
+			ALIAS => 'title',
+		},
 
 # refresh rate for the report page - can't be less than 10, and 0 means never.
 # (in seconds)
@@ -227,7 +232,13 @@ sub define_defaults {
 		},
 		default_sql_definitions => { DEFAULT => 'Config/TQASched.sql',
 									 ALIAS   => 'create_script|sql_file'
-		}
+		},
+		# used for toggling debug tools or reporting
+		default_debug => {
+			DEFAULT => 0,
+			ARGS => '!',
+			ALIAS => 'debug',
+		},
 	);
 
 	${$cfg_ref}->define( $_ => \%{ $config_vars{$_} } ) for keys %config_vars;

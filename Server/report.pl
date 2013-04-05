@@ -175,7 +175,7 @@ sub print_thead {
 			</tr>
 			<tr>
 				<th colspan='$num_headers'>
-					<input type='checkbox' name='float_status' value='true' $float_status /> Float Status
+					<input type='checkbox' name='float_status' value='true' onclick='this.form.submit();' $float_status /> Float Status
 				</th>
 			</tr>
 			<tr>

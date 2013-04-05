@@ -69,7 +69,25 @@ sub define_defaults {
 							ARGS    => '!',
 							ALIAS   => 'runonce',
 		},
-
+		# allow daemon to poll updates for legacy feeds
+		daemon_refresh_legacy => {
+							DEFAULT => 1,
+							ARGS    => '!',
+							ALIAS   => 'refresh_legacy',
+		},
+		# allow daemon to poll updates for dis feeds
+		daemon_refresh_dis => {
+							DEFAULT => 1,
+							ARGS    => '!',
+							ALIAS   => 'refresh_dis',
+		},
+		# enable the daemon to scan 1 GMT day ahead of current
+		daemon_lookahead => {
+							DEFAULT => 0,
+							ARGS    => '!',
+							ALIAS   => 'lookahead',
+		},
+		
 		# scheduling configs
 		#
 		# path to master schedule spreadsheet

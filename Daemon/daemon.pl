@@ -35,8 +35,10 @@ while ( ++$run_counter ) {
 	say "daemon has awoken and is beginning cycle number $run_counter";
 
 	# reload configs each run
-	$cfg = load_conf('..');
-	say 'configs reloaded, checking out some new db handles';
+	# not a good idea - overrides CLI args!
+	# TODO preserve CLI args while refreshing the rest of configs from file
+	#$cfg = load_conf('..');
+	#say 'configs reloaded, checking out some new db handles';
 
 	# get new db handles each run
 	(  $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
@@ -68,13 +70,16 @@ sub refresh {
 	my ( $year, $month, $day ) = get_today();
 
 	#my ($year, $month, $day) = (2013,4,2);
+	# TODO fork children to do each refresh (how to handle handles?)
 
-	#my ($tyear, $tmonth, $tday) = get_tomorrow();
-	# TODO: spawn background refreshes for other days
-	refresh_dis( $year, $month, $day );
-
-	#refresh_dis($tyear, $tmonth, $tday);
-	refresh_legacy( $year, $month, $day );
+	refresh_dis( $year, $month, $day ) if $cfg->refresh_dis;
+	refresh_legacy( $year, $month, $day ) if $cfg->refresh_legacy;
+	
+	if ( $cfg->lookahead ) {
+		my ( $tyear, $tmonth, $tday ) = get_tomorrow();
+		refresh_dis( $tyear, $tmonth, $tday );
+		refresh_legacy( $tyear, $tmonth, $tday );
+	}
 
 }
 

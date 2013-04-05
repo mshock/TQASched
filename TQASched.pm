@@ -152,7 +152,8 @@ sub execute_tasks {
 					 logfile => $cfg->log
 				   }
 		);
-	} else {
+	}
+	else {
 
 		# TODO: set the USR1 signal handler - for cleanly exiting
 		# print out some nice info
@@ -415,14 +416,15 @@ sub extract_row_init {
 
 	# get formatted excel value for most columns
 	my $value = $cell ? $cell->value() : undef;
-	
+
 	given ($col) {
 
 		# CT scheduled time
 		when (/^0$/) {
 			if ($value) {
 				$row_href->{cst_clock} = $value;
-			} else {
+			}
+			else {
 
 				#warn "no value found in column 0 (CST)\n";
 				return;
@@ -433,7 +435,8 @@ sub extract_row_init {
 		when (/^1$/) {
 			if ($value) {
 				$row_href->{sched_epoch} = time2offset($value);
-			} else {
+			}
+			else {
 
 				#warn "no value found in column 1 (GMT)\n";
 				return;
@@ -444,7 +447,8 @@ sub extract_row_init {
 		when (/^2$/) {
 			if ($value) {
 				$row_href->{update} = $value;
-			} else {
+			}
+			else {
 
 				#warn "no value found for column 2 (update)\n";
 				return;
@@ -455,7 +459,8 @@ sub extract_row_init {
 		when (/^3$/) {
 			if ($value) {
 				$row_href->{feed_id} = $value;
-			} else {
+			}
+			else {
 
 				#warn "no value found for column 3 (feed id)\n";
 				return;
@@ -467,14 +472,17 @@ sub extract_row_init {
 			if ($value) {
 				if ( $value =~ m/legacy/i ) {
 					$row_href->{is_legacy} = 1;
-				} elsif ( $value =~ m/dis/i ) {
+				}
+				elsif ( $value =~ m/dis/i ) {
 					$row_href->{is_legacy} = 0;
-				} else {
+				}
+				else {
 
 					#warn "unrecognized value in column 4 (legacy flag)\n";
 					return;
 				}
-			} else {
+			}
+			else {
 
 				#warn "no value found for column 4 (legacy flag)\n";
 				return;
@@ -485,7 +493,8 @@ sub extract_row_init {
 		when (/^5$/) {
 			if ( defined $value ) {
 				$row_href->{priority} = $value;
-			} else {
+			}
+			else {
 
 				#warn "no value found for column 5 (priority)\n";
 				return;
@@ -497,7 +506,8 @@ sub extract_row_init {
 		when (/^6$/) {
 			if ($value) {
 				$row_href->{days} = $value;
-			} else {
+			}
+			else {
 
 				#warn "no value found for column 6 (day/s of week)\n";
 				return;
@@ -518,6 +528,7 @@ sub extract_row_daemon {
 
 	# get formatted excel value for most columns
 	my $value = $cell ? $cell->value() : '';
+
 	#say $value;
 	given ($col) {
 
@@ -546,7 +557,7 @@ sub extract_row_daemon {
 		# file date
 		when (/^4$/) {
 			unless ($value) {
-				say "\terror parsing date field";
+				#say "\terror parsing date field";
 				return;
 			}
 
@@ -678,7 +689,7 @@ sub now_offset {
 # returns wd code for passed date (YYYY?MM?DD)
 sub get_wd {
 	my ($date) = @_;
-	my ( $year, $month, $day ) = ( $date =~ m!(\d{4}).?(\d{2}).?(\d{2})! );
+	my ( $year, $month, $day ) = ( $date =~ m!(\d{4}).?(\d+).?(\d+)! );
 	if ( !$year || !$month || !$day ) {
 		$date ||= '<undef>';
 		warn "unable to parse date for weekday: $date";
@@ -861,9 +872,11 @@ sub sender2dbh {
 			my $tt_server = $1;
 			if ( $tt_server == 3 ) {
 				$server = 4;
-			} elsif ( $tt_server == 5 ) {
+			}
+			elsif ( $tt_server == 5 ) {
 				$server = 5;
-			} else {
+			}
+			else {
 				warn "unrecognized TINTRIN server: $sender\n";
 			}
 		}
@@ -871,11 +884,13 @@ sub sender2dbh {
 		# PROD01 - special updates, I guess
 		elsif ( $sender =~ m/TQAPROD01/ ) {
 			return $dbh_prod1;
-		} else {
+		}
+		else {
 			warn
 				"sanity check failed on DIS sender $sender, unable to match server\n";
 		}
-	} else {
+	}
+	else {
 		warn "DIS feed sender $sender somehow not sent from DIS1\n";
 	}
 
@@ -950,16 +965,18 @@ sub update_history {
 	#say "$update_id $sched_id $trans_offset";
 	#say "( $update_id, $sched_id, $trans_offset, $late_q, $fd_q, $fn_q )";
 	# if there was a trasnum some things need to be done:
-	my $select_filter = "and sched_id = $sched_id";
+	my $select_filter = "
+	and feed_date = '$feed_date'
+	and sched_id = $sched_id";
 	if ( $trans_num && $late_q ne 'E' ) {
 
 		# only filter by transaction number if one was passed in
-		$select_filter = "
-		and sched_id = $sched_id
+		$select_filter .= "
 		and transnum = $trans_num
 		";
-	} elsif ( $late_q eq 'E' ) {
-		$select_filter = "
+	}
+	elsif ( $late_q eq 'E' ) {
+		$select_filter .= "
 		and transnum = $trans_num
 		";
 	}
@@ -973,7 +990,8 @@ sub update_history {
 	# update if late and not yet recvd
 	# or skip if it was already recvd
 	# otherwise, insert
-	my ( $hist_id, $late, $fd, $fn, $hist_trans_num ) = $dbh_sched->selectrow_array( "
+	my ( $hist_id, $late, $fd, $fn, $hist_trans_num )
+		= $dbh_sched->selectrow_array( "
 		select hist_id, late, filedate, filenum, transnum
 		from [TQASched].dbo.Update_History
 		where feed_date = '$feed_date'
@@ -985,8 +1003,9 @@ sub update_history {
 	my $update_trans_flag = 0;
 	if ( !$hist_id && $fd_q && $fn_q ) {
 
-		my ($old_trans_num, $old_feed_date);
-		( $hist_id, $old_trans_num, $old_feed_date ) = $dbh_sched->selectrow_array( "
+		my ( $old_trans_num, $old_feed_date );
+		( $hist_id, $old_trans_num, $old_feed_date )
+			= $dbh_sched->selectrow_array( "
 		select hist_id, transnum, feed_date
 		from [TQASched].dbo.Update_History
 		where  sched_id = $sched_id
@@ -1003,13 +1022,15 @@ sub update_history {
 		if ( defined $old_trans_num && $old_trans_num != $trans_num ) {
 			say "\tnew transaction number";
 			$update_trans_flag = 1;
-		} elsif ( !defined $old_trans_num ) {
-			if ( ($late_q eq 'Y' || $late_q eq 'E') && !$is_legacy) {
+		}
+		elsif ( !defined $old_trans_num ) {
+			if ( ( $late_q eq 'Y' || $late_q eq 'E' ) && !$is_legacy ) {
 				say "\tnext trans number, skip";
 				return;
 			}
 		}
-		elsif ($old_trans_num = $trans_num && $old_feed_date eq $feed_date) {
+		elsif ( $old_trans_num == $trans_num && $old_feed_date eq $feed_date )
+		{
 			say "\tnon-enum from prev day, skip";
 			return;
 		}
@@ -1066,7 +1087,8 @@ sub update_history {
 			say "\t$update_id DIS not done today yet";
 
 			#return;
-		} elsif ($is_legacy) {
+		}
+		elsif ($is_legacy) {
 			say "\t$update_id legacy recvd, but parsing error";
 
 			#return;
@@ -1189,7 +1211,7 @@ sub load_conf {
 
 # bring in configuration code from external file
 # separate AppConfig hash and possible future configs for ease of use
-# INV: look into best practices for calling sub-packages (another module is preventing me from using Config.pm)
+# INV look into best practices for calling sub-packages (another module is preventing me from using Config.pm)
 	require 'Config/config.pl';
 	TQASched::Config::define_defaults( \$cfg );
 
@@ -1203,6 +1225,7 @@ sub load_conf {
 
 	# second pass at CLI args, they take precedence over config file
 	$cfg->getopt( \@CLI );
+	# get hashes of database connection information
 	(  $sched_db, $auh_db,  $prod1_db, $dis1_db,
 	   $dis2_db,  $dis3_db, $dis4_db,  $dis5_db )
 		= map { get_handle_hash($_) } qw(sched_db auh_db prod1_db 1 2 3 4 5);
@@ -1283,7 +1306,8 @@ sub offset_weekdays {
 				$first_int++;
 			}
 
-		} elsif ( $first_int > $second_int ) {
+		}
+		elsif ( $first_int > $second_int ) {
 			while (1) {
 				push @offsets,
 					[ $first_int * $day_increment + $sched_offset, $first_int
@@ -1296,7 +1320,8 @@ sub offset_weekdays {
 				}
 			}
 
-		} else {
+		}
+		else {
 			warn
 				"failed sanity check: $first_date:$first_int $second_date:$second_int\n";
 			return;
@@ -1335,7 +1360,8 @@ sub offset_weekdays {
 					];
 				$first_int++;
 			}
-		} elsif ( $first_int > $second_int ) {
+		}
+		elsif ( $first_int > $second_int ) {
 			while (1) {
 				push @offsets,
 					[ $first_int * $day_increment + $sched_offset, $first_int
@@ -1348,7 +1374,8 @@ sub offset_weekdays {
 				}
 			}
 		}
-	} else {
+	}
+	else {
 		warn "unable to parse $days date range\n";
 		return;
 	}
@@ -1418,7 +1445,8 @@ sub create_db {
 			}
 		);
 		return 1;
-	} elsif ( !$cfg->force_create ) {
+	}
+	elsif ( !$cfg->force_create ) {
 		say 'not found,';
 		write_log( { logfile => $cfg->log,
 					 type    => 'INFO',
@@ -1903,7 +1931,8 @@ sub refresh_dis {
 					$cmp_result = -1;
 
 					#$cmp_result = comp_offsets( $trans_offset, $offset );
-				} else {
+				}
+				else {
 					$cmp_result = comp_offsets( $trans_offset, $offset,
 												( $current_wd == 1 ) );
 				}
@@ -1971,11 +2000,13 @@ sub refresh_dis {
 				# possibly just not recvd yet
 				elsif ( $cmp_result == -1 ) {
 					say "\twaiting/passing, last trans: $exec_end";
-				} else {
+				}
+				else {
 					say "\tFAILED transaction offset sanity check: $offset";
 					next;
 				}
-			} else {
+			}
+			else {
 				say "\tno transactions found";
 				next;
 			}
@@ -1996,7 +2027,7 @@ sub refresh_legacy {
 
 	# find_sched( $tyear, $tmonth, $tday );
 
-	my $feed_date = "$tmonth-$tday-$tyear";
+	my $feed_date = "$tyear-$tmonth-$tday";
 
 	# create parser and parse xls
 	my $xlsparser = Spreadsheet::ParseExcel->new();
@@ -2021,55 +2052,64 @@ sub refresh_legacy {
 		my ( $row_min, $row_max ) = $worksheet->row_range();
 
 		my $sched_block = '';
+
 		# iterate over each row and store scheduling data
 		for ( my $row = $row_min; $row <= $row_max; $row++ ) {
-			
+
 			next if $row <= 1;
-			
-			
+
 			# per-update hash of column values
 			my $row_data = {};
 			for ( my $col = $col_min; $col <= $col_max; $col++ ) {
 				my $cell = $worksheet->get_cell( $row, $col );
 				unless ( extract_row_daemon( $col, $cell, $row_data ) ) {
-				} else {
+				}
+				else {
 					if (    $row_data->{time_block}
 						 && $sched_block ne $row_data->{time_block} )
 					{
 						$sched_block = $row_data->{time_block};
-					} else {
+					}
+					else {
 						$row_data->{time_block} = $sched_block;
 					}
 				}
 			}
 
 			# skip unless update name filled in
-			
-				unless (exists $row_data->{update}) {
-					#say "\tblank row, skip";
-					next;
-				}
 
-			my $name      = $row_data->{update};
-			
+			unless ( exists $row_data->{update} ) {
+
+				#say "\tblank row, skip";
+				next;
+			}
+
+			my $name = $row_data->{update};
+
 			my $update_id = get_update_id($name);
 			unless ($update_id) {
 				say "\tcould not find update ID for $name";
 				next;
 			}
 			say "\t$name\t$update_id";
+
+			# TODO implement better way of handling legacy CT TZ border feeds
 			# correct weekday for border cases
 			my $border_flag = 0;
 			my $tmp_weekday_code;
-			if ($update_id == 406 || $update_id == 405 || $update_id == 403 || $update_id == 407 || $update_id == 408) {
+			if (    $update_id == 406
+				 || $update_id == 405
+				 || $update_id == 403
+				 || $update_id == 407
+				 || $update_id == 408 )
+			{
 				say "\tfixing border weekday from $weekday_code";
 				$tmp_weekday_code = $weekday_code;
 				$weekday_code++;
 				$weekday_code = 0 if $weekday_code == 7;
 				$border_flag = 1;
-			} 
-			
-			
+			}
+
 			my $sched_query = "
 				select sched_epoch, sched_id 
 				from TQASched.dbo.Update_Schedule us
@@ -2080,22 +2120,18 @@ sub refresh_legacy {
 			my ( $sched_offset, $sched_id )
 				= $dbh_sched->selectrow_array($sched_query);
 
-			unless (defined $sched_offset) {
+			unless ( defined $sched_offset ) {
+				# TODO handle this error by finding the correct schedule entry to update rather than failing
 				say "\toffset not defined";
-				#say $sched_query;
-#open TEST, '>>testing.log';
-#say TEST "no schedule entry for $name : $update_id on weekday $weekday_code";
-#close TEST;
 				next;
 			}
 
-#			if ($border_flag) {
-#				$sched_offset -= 86400; 
-#			}
+			#			if ($border_flag) {
+			#				$sched_offset -= 86400;
+			#			}
 			if ($border_flag) {
 				$weekday_code = $tmp_weekday_code;
 			}
-			
 
 			my ( $trans_ts, $trans_offset, $trans_num ) = ( 0, -1, -1 );
 			if (    $row_data->{filedate}
@@ -2115,13 +2151,18 @@ sub refresh_legacy {
 			my $cmp_result;
 			if ( $trans_offset == -1 ) {
 				$cmp_result = -1;
-			} else {
+			}
+			else {
 				$cmp_result = comp_offsets( $trans_offset, $sched_offset );
 			}
 
 			#say $row_data->{update}, 			$row_data->{filedate};
 
 			#my $cmp_result = comp_offsets( $trans_offset, $sched_offset );
+
+			# adjust feed date according to weekday
+			$feed_date
+				= legacy_feed_date( $weekday_code, $feed_date);
 
 			# if it's within an hour of the scheduled time, mark as on time
 			# could also be early
@@ -2174,13 +2215,66 @@ sub refresh_legacy {
 				#								  feed_date    => $feed_date,
 				#								}
 				#				);
-			} else {
+			}
+			else {
 				warn
 					"\tFAILED transaction offset sanity check: $name $sched_offset\n";
 				next;
 			}
 		}
 	}
+}
+
+# calculate a particular DoW's feed date
+sub legacy_feed_date {
+	my ( $excel_wd, $curr_date ) = @_;
+	my $curr_wd = get_wd($curr_date);
+	#say "curr wd: $curr_wd excel wd: $excel_wd";
+	my $delta = 0;
+
+	# this is today (supposedly)
+	if ( $curr_wd == $excel_wd ) {
+		#say "same day";
+		return $curr_date;
+	}
+
+	# sunday is actually at the 'end' of the week
+	elsif ( $curr_wd == 0 ) {
+		$delta = -7 + $excel_wd;
+	}
+	elsif ( $excel_wd == 0 ) {
+		$delta = 7 - $curr_wd;
+	}
+	else {
+		$delta = $excel_wd - $curr_wd;
+	}
+	
+
+	# looking at past day in sheet
+#	elsif ( $curr_wd > $excel_wd ) {
+#		$delta = $excel_wd - $curr_wd;
+#	}
+
+#	# looking at future day in sheet
+#	elsif ( $curr_wd < $excel_wd ) {
+#		$delta = $curr_wd - $excel_wd;
+#	}
+	
+	#say "delta: $delta";
+	
+	return date_math( $delta, $curr_date );
+}
+
+# do date math in day increments
+sub date_math {
+	my ( $delta_days, $date ) = @_;
+	my ( $year, $month, $day ) = ( $date =~ m!(\d{4}).?(\d+).?(\d+)! )
+		or ( return and say "could not do date math!\n" );
+	my $time = timegm( 0, 0, 0, $day, $month - 1, $year - 1900 );
+	$time += $delta_days * 86400;
+	my ( $sec, $min, $hour, $mday, $mon, $y, $wday, $yday, $isdst )
+		= gmtime($time);
+	return sprintf '%u-%02u-%02u', $y + 1900, $mon + 1, $mday;
 }
 
 # look up an update's completion timestamp from AUH db

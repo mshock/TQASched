@@ -133,7 +133,7 @@ sub define_defaults {
 
 		# refresh rate for report page
 		report_refresh => { DEFAULT => '300',
-							ALIAS   => 'refresh',
+							ALIAS   => 'refresh_seconds',
 		},
 
 		#-------------------------------------------------------------------
@@ -174,6 +174,12 @@ sub define_defaults {
 			DEFAULT => '',
 			ARGS => ':s',
 			ALIAS => 'float_status',
+		},
+		
+		report_enable_refresh => {
+			DEFAULT => '',
+			ARGS => ':s',
+			ALIAS => 'enable_refresh',
 		},
 		# optional window title, useful for side-by-side comparisons
 		report_title => {

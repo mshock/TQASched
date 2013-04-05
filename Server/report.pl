@@ -10,11 +10,11 @@ use Data::Dumper;
 use lib '..';
 use TQASched;
 
-my $cfg     = load_conf('..');
-my $refresh = $cfg->refresh;
+my $cfg        = load_conf('..');
+my $debug_mode = $cfg->debug;
 
 # redirect that STDERR if it's not going to the term
-#redirect_stderr( $cfg->report_log ) if caller;
+redirect_stderr( $cfg->report_log ) if caller && !$debug_mode;
 
 # we only need the handle for TQASched db in the report! that's all, folks!
 my ($dbh_sched) = refresh_handles( ('sched') );
@@ -24,22 +24,23 @@ my ( $headerdate, $headertime, $dbdate ) = calc_datetime();
 
 # get POST params
 # parsed from CLI arg key/value pairs
-my ( $post_date,   $legacy_filter, $dis_filter,   $prev_search,
-	 $search_type, $upd_checked,   $float_status, $report_title
-) = ('') x 8;
+my ( $post_date,    $legacy_filter, $dis_filter,
+	 $prev_search,  $search_type,   $upd_checked,
+	 $float_status, $report_title,  $refresh_enabled
+) = ('') x 9;
 
 my $upd_num = 0;
 
-$float_status  = $cfg->float_status =~ REGEX_TRUE ? 'checked' : '';
-$post_date     = $cfg->date;
-$legacy_filter = $cfg->legacy =~ REGEX_TRUE ? 'checked' : '';
-$dis_filter    = $cfg->dis =~ REGEX_TRUE ? 'checked' : '';
-$prev_search   = $cfg->search;
-$search_type   = $cfg->search_type;
-$upd_checked   = $cfg->search_upd =~ REGEX_TRUE ? 'checked' : '';
-$report_title  = $cfg->title || 'Monitor :: TQASched';
-
-my $debug_mode = $cfg->debug;
+$float_status    = cfg_checked( $cfg->float_status );
+$post_date       = $cfg->date;
+$legacy_filter   = cfg_checked( $cfg->legacy );
+$dis_filter      = cfg_checked( $cfg->dis );
+$prev_search     = $cfg->search;
+$search_type     = $cfg->search_type;
+$upd_checked     = cfg_checked( $cfg->search_upd );
+$report_title    = $cfg->title || 'Monitor :: TQASched';
+$refresh_enabled = cfg_checked( $cfg->enable_refresh );
+my $refresh_seconds = $cfg->refresh_seconds || 0;
 
 if ( $legacy_filter && $dis_filter ) {
 	( $legacy_filter, $dis_filter ) = ( '', '' );
@@ -129,9 +130,10 @@ sub print_header {
 	# enable report refresh for times over 15 seconds, no faster
 	# a value of less than 15 is treated as no refresh
 	my $header_refresh
-		= $refresh >= 15
-		? "<meta http-equiv='refresh' content='$refresh' >"
-		: '<!-- auto refresh not enabled ($refresh) -->';
+		= $refresh_enabled && $refresh_seconds >= 15
+		? "<meta http-equiv='refresh' content='$refresh_seconds' >"
+		: sprintf( "<!-- auto refresh not enabled %s -->",
+				   ( $debug_mode ? "(debug: $refresh_seconds secs)" : '' ) );
 
 	say "
 <html>
@@ -200,8 +202,10 @@ sub print_thead {
 			</tr>
 			<tr>
 				<th colspan='$num_headers'>
+					<input type='checkbox' id='enable_refresh' name='enable_refresh' value='true' onclick='this.form.submit();' $refresh_enabled />
+						<label for='enable_refresh'>Auto Refresh</label>
 					<input type='checkbox' id='float_stat_cb' name='float_status' value='true' onclick='this.form.submit();' $float_status />
-						<label for='float_stat_cb'>Float Status</label>
+						<label for='float_stat_cb'>Float Status</label>				
 				</th>
 			</tr>
 			<tr>
@@ -550,6 +554,19 @@ sub offset2time {
 	}
 
 	return sprintf( '%s %02u:%02u', $date_display, $hours, $minutes );
+}
+
+# determine if a config value is set to truth
+# return 'checked' string for dynamic HTML form state
+sub cfg_checked {
+	my ($cfg_val) = @_;
+	if ( defined $cfg_val ) {
+		$cfg_val =~ REGEX_TRUE ? 'checked' : '';
+	}
+	else {
+		return '';
+	}
+
 }
 
 # do date math in days on current view's date

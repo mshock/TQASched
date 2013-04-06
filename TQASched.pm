@@ -2029,7 +2029,11 @@ sub refresh_legacy {
 	# attempt to find & download the latest spreadsheet from OpsDocs server
 	my $sched_xls
 		= '\\\\10.16.40.216/dataops/Operations_Update_Summary/DailyCheckList_1st-07th April.xls';
-
+	# TODO dynamic spreadsheet copy
+	if ($tday > 14) {
+		$sched_xls = '\\\\10.16.40.216/dataops/Operations_Update_Summary/DailyChecklist_20130408.xls';
+	}
+	
 	# find_sched( $tyear, $tmonth, $tday );
 
 	my $feed_date = "$tyear-$tmonth-$tday";

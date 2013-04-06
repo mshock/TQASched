@@ -36,7 +36,7 @@ $post_date       = $cfg->date;
 $legacy_filter   = cfg_checked( $cfg->legacy );
 $dis_filter      = cfg_checked( $cfg->dis );
 $prev_search     = $cfg->search;
-$search_type     = $cfg->search_type;
+$search_type     = uc $cfg->search_type;
 $upd_checked     = cfg_checked( $cfg->search_upd );
 $report_title    = $cfg->title || 'Monitor :: TQASched';
 $refresh_enabled = cfg_checked( $cfg->enable_refresh );
@@ -49,16 +49,16 @@ if ( $legacy_filter && $dis_filter ) {
 # TODO use switch or hash
 my ( $id_selected, $feed_selected, $time_selected, $feed_date_selected )
 	= ('') x 4;
-if ( uc $search_type eq 'FEED' ) {
+if ( $search_type eq 'FEED' ) {
 	$feed_selected = 'selected';
 }
-elsif ( uc $search_type eq 'FEED_ID' ) {
+elsif ( $search_type eq 'FEED_ID' ) {
 	$id_selected = 'selected';
 }
-elsif ( uc $search_type eq 'SCHEDULE_TIME' ) {
+elsif ( $search_type eq 'SCHEDULE_TIME' ) {
 	$time_selected = 'selected';
 }
-elsif ( uc $search_type eq 'FEED_DATE' ) {
+elsif ( $search_type eq 'FEED_DATE' ) {
 	$feed_date_selected = 'selected';
 }
 
@@ -103,10 +103,11 @@ print_thead(
 	qw(
 		Feed
 		Feed_ID
+		Priority
 		Scheduled_Time
 		Received_Time
 		Feed_Date
-		Update(UPD)
+		UPD
 		)
 );
 
@@ -141,16 +142,6 @@ sub print_header {
 	$header_refresh
 	<title>$report_title</title>
 	<link rel='stylesheet' type='text/css' href='styles.css' />
-	<script language=\"javascript\" type=\"text/javascript\">
-		<!--
-		function popitup(url) {
-			newwindow=window.open(url,'name','height=200,width=150');
-			if (window.focus) {newwindow.focus()}
-			return false;
-		}
-		
-		// -->
-	</script>
 	</head>
 	<body>
 ";
@@ -161,14 +152,24 @@ sub print_thead {
 	if ($debug_mode) {
 		push @headers, 'Timestamp';
 	}
-	my $num_headers = scalar @headers;
+	my $num_headers   = scalar @headers;
+	my $left_colspan  = int( $num_headers / 2 );
+	my $right_colspan = $num_headers - $left_colspan;
 	my ( $prevdate, $nextdate ) = calc_adjacent();
-
+	my $debug_warning = $debug_mode
+		? "
+	<tr>
+		<th colspan = '$num_headers'>
+			<h1>DEBUG</h1>
+		</th>
+	</tr>"
+		: '';
 	say "
 <form method='GET'>
 	
 	<table cellspacing='0' width='100%' border=0>
 		<thead>
+			$debug_warning
 			<tr>
 				<th colspan='$num_headers' >
 					<h2>GMT Date $headerdate&nbsp&nbsp&nbsp|&nbsp&nbsp&nbsp$headertime </h2>
@@ -209,10 +210,11 @@ sub print_thead {
 				</th>
 			</tr>
 			<tr>
-				<th colspan='2'><a href='?date=$prevdate'><<</a> previous ($prevdate)</th>
-				<th colspan='5'>($nextdate) next <a href='?date=$nextdate'>>></a></th>
+				<th colspan='$left_colspan'><a href='?date=$prevdate'><<</a> previous ($prevdate)</th>
+				<th colspan='$right_colspan'>($nextdate) next <a href='?date=$nextdate'>>></a></th>
 			</tr>
 			<tr>";
+
 	for my $header (@headers) {
 		say "
 			<th>
@@ -271,18 +273,20 @@ sub compile_table {
 	}
 
 	if ($prev_search) {
-		if ( $search_type eq 'Feed' ) {
-			$filter
-				= $filter . " and UPPER(u.name) like UPPER('%$prev_search%')";
+		if ( $search_type eq 'FEED' ) {
+			$filter .= " and UPPER(u.name) like UPPER('%$prev_search%')";
 		}
-		elsif ( $search_type eq 'Feed_ID' ) {
-			$filter = $filter
-				. " and UPPER(d.feed_id) like UPPER('%$prev_search%')";
+		elsif ( $search_type eq 'FEED_ID' ) {
+			$filter .= " and UPPER(d.feed_id) like UPPER('%$prev_search%')";
+		}
+		elsif ( $search_type eq 'SCHEDULE_TIME' ) {
+			my $sched_offset = time2offset($prev_search) + 86400 * $wd;
+			$filter .= " and us.sched_epoch = $sched_offset";
 		}
 	}
 
 	my $select_schedule = "
-	  select distinct us.sched_id, us.update_id, us.sched_epoch, u.name, u.is_legacy, d.feed_id, u.prev_date
+	  select distinct us.sched_id, us.update_id, us.sched_epoch, u.name, u.is_legacy, d.feed_id, u.prev_date, u.priority
 	  from [TQASched].[dbo].[Update_Schedule] us
 	  join
 	  [TQASched].[dbo].[Updates] u
@@ -300,14 +304,17 @@ sub compile_table {
 	";
 
 	$filter = '';
+	if ( $prev_search && $search_type eq 'FEED_DATE' ) {
+		$filter .= " and feed_date = '$prev_search'";
+	}
 	if ($upd_checked) {
 		$filter = "and filedate = $dbdate";
 		if ($upd_num) {
-			$filter = $filter . " and filenum = $upd_num";
+			$filter .= " and filenum = $upd_num";
 		}
 	}
 	my $select_history = "
-		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date
+		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num
 		from [TQASched].[dbo].[Update_History]
 		where
 		sched_id = ?
@@ -326,15 +333,23 @@ sub compile_table {
 	#say 'iterating...';
 	my $row_count = 0;
 	my %display_rows;
+	my $border_prev = 0;
 	for my $row_aref ( @{$sched_aref} ) {
-		$row_count++;
+		
 		my ( $sched_id, $update_id, $sched_offset, $name, $is_legacy,
-			 $feed_id, $prev_date )
+			 $feed_id, $prev_date, $priority )
 			= @{$row_aref};
 		$hist_query->execute($sched_id);
 		my ( $hist_id, $hist_offset, $filedate, $filenum, $hist_ts, $late,
-			 $feed_date )
+			 $feed_date, $seq_num )
 			= $hist_query->fetchrow_array();
+
+		# skip 'wait' updates when searching by feed date
+		if (defined $feed_date && $prev_search && $search_type eq 'FEED_DATE' && $feed_date !~ $prev_search) {
+			
+			next;
+		}
+		$row_count++;
 
 		#say "fetched row for $sched_id";
 		# this has been seen for today, has history record
@@ -346,10 +361,30 @@ sub compile_table {
 						$filedate,     $filenum,     $feed_date,
 						$prev_date
 			);
+		my $border_class1 = '';
+		my $border_class2 = '';
+		if ( $row_class =~ m/empty/ ) {
+			$border_class1 = 'emptyborder1';
+			if ( !$border_prev ) {
+				$border_class2 = 'emptyborder2';
+				$border_prev   = 1;
+			}
+			else {
+				$border_class2 = 'emptyborder3';
+			}
+		}
+		else {
+			$border_prev = 0;
+		}
 
+		my $tr_title
+			= defined $seq_num
+			? "title='seqnum = $seq_num'"
+			: "title='no seqnum'";
 		my $update_row = sprintf( "
-		<tr class='$row_class'>
+		<tr $tr_title class='$border_class1 $border_class2 $row_class'>
 			<td>%s\t%s</td>
+			<td>%s</td>
 			<td>%s</td>
 			<td>%s</td>
 			<td>%s</td>
@@ -358,7 +393,7 @@ sub compile_table {
 			%s
 		</tr>
 		",
-			$name, ( $debug_mode ? "[$update_id]" : '' ), $feed_id,
+			$name, ( $debug_mode ? "[$update_id]" : '' ), $feed_id, $priority,
 			$sched_time, $recvd_time, $feed_date_pretty, $update,
 			( $debug_mode ? "<td>$daemon_ts</td>" : '' ) );
 
@@ -383,6 +418,7 @@ sub compile_table {
 			else {
 				$line =~ s/_odd/_even/;
 			}
+
 			say $line;
 			$row_count++;
 		}
@@ -417,6 +453,13 @@ sub row_info {
 			}
 			else {
 				$status = 'recv';
+
+				#				if ( $late eq 'N' ) {
+				#					$status = 'recv';
+				#				}
+				#				elsif ( $late eq 'E' ) {
+				#					$status = 'empty';
+				#				}
 			}
 		}
 		else {
@@ -438,11 +481,19 @@ sub row_info {
 		$feed_date  = 'N/A';
 	}
 
-	my $row_class = $status . ( $row_parity ? '_even' : '_odd' );
+	my $row_class;
 
-	#	if ($status eq 'wait' && ) {
-	#
-	#	}
+	# this is an empty update, change its color
+	if (defined $late &&    $late eq 'E'
+		 && $status     eq 'recv'
+		 && $recvd_time eq 'N/A'
+		 && $update     eq 'N/A' )
+	{
+		$row_class = 'empty' . ( $row_parity ? '_even' : '_odd' );
+	}
+	else {
+		$row_class = $status . ( $row_parity ? '_even' : '_odd' );
+	}
 
 	return ( $row_class, $status, $sched_time, $recvd_time,
 			 $daemon_ts, $update, $feed_date );
@@ -567,6 +618,18 @@ sub cfg_checked {
 		return '';
 	}
 
+}
+
+# convert 24hr time to seconds offset from beginning of the day
+# next it will have a day offset in seconds added to it where Sunday = 0
+sub time2offset {
+	my $time_string = shift;
+	my ( $hours, $minutes ) = ( $time_string =~ m/(\d+):(\d+)/ );
+	unless ( defined $hours && defined $minutes ) {
+		warn "\tparsing error converting time to offset: $time_string\n";
+		return;
+	}
+	return $hours * 3600 + $minutes * 60;
 }
 
 # do date math in days on current view's date

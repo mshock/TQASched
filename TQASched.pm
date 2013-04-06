@@ -952,13 +952,13 @@ sub update_history {
 	my $hashref = shift;
 	my ( $update_id, $sched_id,  $trans_offset,
 		 $late_q,    $fd_q,      $fn_q,
-		 $trans_num, $is_legacy, $feed_date
+		 $trans_num, $is_legacy, $feed_date, $seq_num
 		)
 		= ( $hashref->{update_id},    $hashref->{sched_id},
 			$hashref->{trans_offset}, $hashref->{late},
 			$hashref->{filedate},     $hashref->{filenum},
 			$hashref->{transnum},     $hashref->{is_legacy},
-			$hashref->{feed_date}
+			$hashref->{feed_date}, $hashref->{seq_num}
 		);
 	$is_legacy ||= 0;
 
@@ -1058,6 +1058,8 @@ sub update_history {
 			say "\talready stored empty $update_id";
 			return;
 		}
+		
+		$seq_num ||= 'NULL';
 
 		say "\t$update_id updating: "
 			. ( $update_trans_flag
@@ -1066,7 +1068,7 @@ sub update_history {
 			);
 		$dbh_sched->do( "
 			update TQASched.dbo.Update_History
-			set filedate = $fd_q, filenum = $fn_q, transnum = $trans_num 
+			set filedate = $fd_q, filenum = $fn_q, transnum = $trans_num, seq_num = $seq_num
 			where hist_id = $hist_id
 		" );
 
@@ -1103,13 +1105,13 @@ sub update_history {
 		}
 		$fd_q ||= 0;
 		$fn_q ||= 0;
-
+		$seq_num ||= 'NULL';
 		# retrieve filedate and filenum from TQALic on nprod1
 		#my ( $fd, $fn ) = get_fdfn($trans_num);
 		my $insert_hist = "
 			insert into TQASched.dbo.Update_History 
 			values
-			($update_id, $sched_id, $trans_offset, $fd_q, $fn_q, GetUTCDate(), '$late_q', $trans_num, '$feed_date' )
+			($update_id, $sched_id, $trans_offset, $fd_q, $fn_q, GetUTCDate(), '$late_q', $trans_num, '$feed_date', $seq_num )
 		";
 
 		#say $insert_hist;
@@ -1119,12 +1121,12 @@ sub update_history {
 	# otherwise, it is late/wait and has no filedate filenum, insert
 	else {
 		say "\t$update_id no history found";
-
+		$seq_num ||= 'NULL';
 		$trans_num = 'NULL' if $trans_num != -1;
 		my $insert_hist = "
 			insert into TQASched.dbo.Update_History 
 			values
-			($update_id, $sched_id, $trans_offset, NULL, NULL, GetUTCDate(), '$late_q', $trans_num, '$feed_date')
+			($update_id, $sched_id, $trans_offset, NULL, NULL, GetUTCDate(), '$late_q', $trans_num, '$feed_date', $seq_num)
 		";
 		$dbh_sched->do($insert_hist) or say "\t\talready waiting...";
 
@@ -1683,7 +1685,7 @@ sub refresh_dis {
 # gets DIS server (sender) for enumerated feeds to hit for build-specific details
 # TODO cannot simply take newest, need to check feed date
 			my $transactions = "
-			select top 1 Status, ProcessTime, FileDate, FileNum, Sender, TransactionNumber, BuildTime, FeedDate 
+			select top 1 Status, ProcessTime, FileDate, FileNum, Sender, TransactionNumber, BuildTime, FeedDate, SeqNum 
 			from [TQALic].dbo.[PackageQueue] 
 			with (NOLOCK)
 			where TaskReference LIKE '%$feed_id%'
@@ -1694,7 +1696,7 @@ sub refresh_dis {
  #say $transactions;
  #--	and feeddate = DateAdd(dd, $feed_date_rewind, '${tyear}${tmonth}${tday}')
 			my ( $status, $exec_end, $fd, $fn, $sender, $trans_num,
-				 $build_time, $feed_date )
+				 $build_time, $feed_date, $seq_num )
 				= $dbh_prod1->selectrow_array($transactions);
 
 			my $backdate_updates;
@@ -1759,7 +1761,7 @@ sub refresh_dis {
 				# select this transaction from TQALic
 				# to get AUH process time, along with filenum and filedate
 				my $transactions = "
-				select top 1 Status, BuildTime, FileDate, FileNum, Sender, TransactionNumber, DateDiff(dd, [BuildTime], GETUTCDATE()), FeedDate 
+				select top 1 Status, BuildTime, FileDate, FileNum, Sender, TransactionNumber, DateDiff(dd, [BuildTime], GETUTCDATE()), FeedDate, seqnum 
 				from [TQALic].dbo.[PackageQueue] 
 				with (NOLOCK)
 				where TaskReference LIKE '%$feed_id%'
@@ -1769,7 +1771,7 @@ sub refresh_dis {
 				order by BuildTime desc
 			";
 				(  $status, $exec_end, $fd, $fn, $sender, $trans_num,
-				   $build_time, $feed_date
+				   $build_time, $feed_date, $seq_num
 				) = $dbh_prod1->selectrow_array($transactions);
 
 #					or warn
@@ -1792,7 +1794,8 @@ sub refresh_dis {
 									  filedate     => 'NULL',
 									  filenum      => 'NULL',
 									  transnum     => $trans_num,
-									  feed_date    => $feed_date
+									  feed_date    => $feed_date,
+									  seq_num => $seq_num,
 									}
 					);
 					next;
@@ -1962,7 +1965,8 @@ sub refresh_dis {
 									  filedate     => $fd,
 									  filenum      => $fn,
 									  transnum     => $trans_num,
-									  feed_date    => $feed_date
+									  feed_date    => $feed_date,
+									  seq_num => $seq_num,
 									}
 					);
 
@@ -1985,7 +1989,8 @@ sub refresh_dis {
 									  filedate     => $fd,
 									  filenum      => $fn,
 									  transnum     => $trans_num,
-									  feed_date    => $feed_date
+									  feed_date    => $feed_date,
+									  seq_num => $seq_num,
 									}
 					);
 
@@ -2133,13 +2138,13 @@ sub refresh_legacy {
 				$weekday_code = $tmp_weekday_code;
 			}
 
-			my ( $trans_ts, $trans_offset, $trans_num ) = ( 0, -1, -1 );
+			my ( $trans_ts, $trans_offset, $trans_num, $seq_num ) = ( 0, -1, -1, 0 );
 			if (    $row_data->{filedate}
 				 && $row_data->{filenum}
 				 && $row_data->{filedate} !~ m/skip/i
 				 && $row_data->{filenum} !~ m/skip/i )
 			{
-				( $trans_ts, $trans_num )
+				( $trans_ts, $trans_num, $seq_num )
 					= lookup_update( $row_data->{filedate},
 									 $row_data->{filenum} );
 				$trans_offset = $trans_ts ? datetime2offset($trans_ts) : -1;
@@ -2179,6 +2184,7 @@ sub refresh_legacy {
 								  transnum     => $trans_num,
 								  is_legacy    => 1,
 								  feed_date    => $feed_date,
+								  seq_num => $seq_num,
 								}
 				);
 			}
@@ -2196,6 +2202,7 @@ sub refresh_legacy {
 								  filenum      => $row_data->{filenum},
 								  is_legacy    => 1,
 								  feed_date    => $feed_date,
+								  seq_num => $seq_num,
 								}
 				);
 			}
@@ -2282,16 +2289,16 @@ sub lookup_update {
 	my ( $filedate, $filenum ) = @_;
 
 	my $select_fdfn_query = "
-		select ProcessTime, TransactionNumber
+		select ProcessTime, TransactionNumber, seqnum
 		from [TQALic].[dbo].[PackageQueue]
 		where FileDate = '$filedate'
 		and FileNum= '$filenum'
 		--and Status1 = 100 and Status2 = 100
 	";
-	my ( $fdfn_ts, $trans_num )
+	my ( $fdfn_ts, $trans_num, $seq_num )
 		= ( $dbh_prod1->selectrow_array($select_fdfn_query) );
 
-	return ( $fdfn_ts, $trans_num ) if defined $fdfn_ts;
+	return ( $fdfn_ts, $trans_num, $seq_num ) if defined $fdfn_ts;
 	return;
 
 }

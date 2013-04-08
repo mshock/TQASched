@@ -3,7 +3,7 @@ h1 {
   text-align:left;
 }
 
-table tr td+td+td {
+table tr td+td+td+td {
   font-size: large;
   font-family: monospace;
   width: 8em;

@@ -136,12 +136,27 @@ sub print_header {
 		: sprintf( "<!-- auto refresh not enabled %s -->",
 				   ( $debug_mode ? "(debug: $refresh_seconds secs)" : '' ) );
 
+	my $debug_styles = '';
+	if ($debug_mode) {
+		$debug_styles = "
+		<style>
+			table tr td {
+			  font-size: large;
+			  font-family: monospace;
+			  width: 8em;
+			  white-space:nowrap;
+			}
+		</style>
+	";
+
+	}
 	say "
 <html>
 	<head>
 	$header_refresh
 	<title>$report_title</title>
 	<link rel='stylesheet' type='text/css' href='styles.css' />
+	$debug_styles
 	</head>
 	<body>
 ";
@@ -335,7 +350,7 @@ sub compile_table {
 	my %display_rows;
 	my $border_prev = 0;
 	for my $row_aref ( @{$sched_aref} ) {
-		
+
 		my ( $sched_id, $update_id, $sched_offset, $name, $is_legacy,
 			 $feed_id, $prev_date, $priority )
 			= @{$row_aref};
@@ -345,8 +360,12 @@ sub compile_table {
 			= $hist_query->fetchrow_array();
 
 		# skip 'wait' updates when searching by feed date
-		if (defined $feed_date && $prev_search && $search_type eq 'FEED_DATE' && $feed_date !~ $prev_search) {
-			
+		if (    defined $feed_date
+			 && $prev_search
+			 && $search_type eq 'FEED_DATE'
+			 && $feed_date !~ $prev_search )
+		{
+
 			next;
 		}
 		$row_count++;
@@ -484,7 +503,8 @@ sub row_info {
 	my $row_class;
 
 	# this is an empty update, change its color
-	if (defined $late &&    $late eq 'E'
+	if (    defined $late
+		 && $late       eq 'E'
 		 && $status     eq 'recv'
 		 && $recvd_time eq 'N/A'
 		 && $update     eq 'N/A' )

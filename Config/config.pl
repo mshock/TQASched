@@ -87,7 +87,14 @@ sub define_defaults {
 							ARGS    => '!',
 							ALIAS   => 'lookahead',
 		},
-		
+		# wait for keypress after each update processed
+		# various commands available
+		# Q => quit
+		# TODO more commands - rerun, skip ahead, etc
+		daemon_pause_mode => {
+			DEFAULT => 0,
+			ALIAS => 'pause_mode',
+		},
 		# scheduling configs
 		#
 		# path to master schedule spreadsheet
@@ -153,6 +160,11 @@ sub define_defaults {
 		report_refresh => { DEFAULT => '300',
 							ALIAS   => 'refresh_seconds',
 		},
+		report_view_debug => {
+			DEFAULT => 0,
+			ALIAS => 'report_debug',
+		},
+
 
 		#-------------------------------------------------------------------
 		#  all CGI variables for the report follow:
@@ -260,7 +272,7 @@ sub define_defaults {
 		# used for toggling debug tools or reporting
 		default_debug => {
 			DEFAULT => 0,
-			ARGS => '!',
+			ARGS => ':i',
 			ALIAS => 'debug',
 		},
 	);

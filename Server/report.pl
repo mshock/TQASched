@@ -11,7 +11,7 @@ use lib '..';
 use TQASched;
 
 my $cfg        = load_conf('..');
-my $debug_mode = $cfg->debug;
+my $debug_mode = $cfg->report_debug;
 
 # redirect that STDERR if it's not going to the term
 redirect_stderr( $cfg->report_log ) if caller && !$debug_mode;
@@ -328,22 +328,13 @@ sub compile_table {
 			$filter .= " and filenum = $upd_num";
 		}
 	}
-	my $select_history = "
-		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num
-		from [TQASched].[dbo].[Update_History]
-		where
-		sched_id = ?
-		$filter
-		--and cast( floor( cast([timestamp] as float) ) as datetime) = '$headerdate'
-		order by feed_date desc
-	";
+	
 
 	#warn $select_history and die;
 	#say 'executing sched query';
 	my $sched_aref = $dbh_sched->selectall_arrayref($select_schedule);
 
-	#say 'preparing history query';
-	my $hist_query = $dbh_sched->prepare($select_history);
+
 
 	#say 'iterating...';
 	my $row_count = 0;
@@ -354,9 +345,28 @@ sub compile_table {
 		my ( $sched_id, $update_id, $sched_offset, $name, $is_legacy,
 			 $feed_id, $prev_date, $priority )
 			= @{$row_aref};
-		$hist_query->execute($sched_id);
+		
+#		my $feed_date = sched_id2feed_date($sched_id, $dbdate);	
+#		if (!$feed_date) {
+#			warn "$sched_id";
+#			next;
+#		}
+		
+		my $select_history = "
+		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum
+		from [TQASched].[dbo].[Update_History]
+		where
+		sched_id = $sched_id
+		$filter
+		--and cast( floor( cast([timestamp] as float) ) as datetime) = '$headerdate'
+		order by feed_date desc
+	";
+			#say 'preparing history query';
+	my $hist_query = $dbh_sched->prepare($select_history);
+		$hist_query->execute();
+		
 		my ( $hist_id, $hist_offset, $filedate, $filenum, $hist_ts, $late,
-			 $feed_date, $seq_num )
+			 $feed_date, $seq_num, $transnum )
 			= $hist_query->fetchrow_array();
 
 		# skip 'wait' updates when searching by feed date
@@ -396,10 +406,12 @@ sub compile_table {
 			$border_prev = 0;
 		}
 
-		my $tr_title
-			= defined $seq_num
-			? "title='seqnum = $seq_num'"
-			: "title='no seqnum'";
+		my $tr_title = "title='";
+		$tr_title .= defined $seq_num
+			? "auhseqnum = $seq_num\n"
+			: "no seqnum\n";
+		$tr_title .= defined $transnum && $transnum > 0 ? "distransnum = $transnum" : 'no transnum';
+		$tr_title .= "'";
 		my $update_row = sprintf( "
 		<tr $tr_title class='$border_class1 $border_class2 $row_class'>
 			<td>%s\t%s</td>
@@ -575,7 +587,7 @@ sub offset2time {
 	$offset -= $minutes * 60;
 
 	# this is for border cases - happened previous day
-	# TODO: what about dates further in the past, weekends especially?
+	# TODO what about dates further in the past, weekends especially?
 	# keep rewinding until just the time is left to determine actual day
 	my $past_flag = 0;
 
@@ -597,7 +609,7 @@ sub offset2time {
 		#	$past_flag = 0 if $offset == -1;
 	}
 
-	# TODO: change this to display actual date
+	# TODO change this to display actual date
 	my $date_display = '';
 	if ( $past_flag && !$sched_flag ) {
 		$date_display = date_math(-1) || 'prev day';

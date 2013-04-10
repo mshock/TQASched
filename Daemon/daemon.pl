@@ -11,8 +11,11 @@ use TQASched qw(:all);
 
 my $cfg = load_conf('..');
 
+$debug_mode = $cfg->debug;
+my $pause_mode = $cfg->pause_mode;
+
 # redirect that STDERR if it's not going to the term
-#redirect_stderr( $cfg->daemon_log ) if caller;
+redirect_stderr( $cfg->daemon_log ) if caller && !$debug_mode;
 
 say 'taking a peek at my handles';
 
@@ -48,11 +51,14 @@ while ( ++$run_counter ) {
 	# verify that all handles are defined
 	# sometimes servers hang, daemon should wait on them rather than crash
 	if ( my $num_bad = check_handles() ) {
-		write_log( { logfile => $cfg->daemon_log,
-					 type    => 'ERROR',
-					 msg     => "$num_bad handles not defined, skipping cycle"
-				   }
-		);
+		dsay "$num_bad handles not defined, skipping cycle";
+
+		#
+		#		write_log( { logfile => $cfg->daemon_log,
+		#					 type    => 'ERROR',
+		#					 msg     => "$num_bad handles not defined, skipping cycle"
+		#				   }
+		#		);
 	}
 
 	say 'got new db handles, running tasks';
@@ -67,18 +73,41 @@ while ( ++$run_counter ) {
 }
 
 sub refresh {
+
 	my ( $year, $month, $day ) = get_today();
 
-	#my ($year, $month, $day) = (2013,4,2);
+	#my ( $year, $month, $day ) = ( 2013, 4, 8 );
+
 	# TODO fork children to do each refresh (how to handle handles?)
 
-	refresh_dis( $year, $month, $day ) if $cfg->refresh_dis;
-	refresh_legacy( $year, $month, $day ) if $cfg->refresh_legacy;
-	
+	refresh_dis( { year       => $year,
+				   month      => $month,
+				   day        => $day,
+				   pause_mode => $pause_mode,
+				 }
+	) if $cfg->refresh_dis;
+
+	refresh_legacy( { year       => $year,
+					  month      => $month,
+					  day        => $day,
+					  pause_mode => $pause_mode,
+					}
+	) if $cfg->refresh_legacy;
+
 	if ( $cfg->lookahead ) {
 		my ( $tyear, $tmonth, $tday ) = get_tomorrow();
-		refresh_dis( $tyear, $tmonth, $tday );
-		refresh_legacy( $tyear, $tmonth, $tday );
+		refresh_dis( { year       => $tyear,
+					   month      => $tmonth,
+					   day        => $tday,
+					   pause_mode => $pause_mode,
+					 }
+		) if $cfg->refresh_dis;
+		refresh_legacy( { year       => $tyear,
+						  month      => $tmonth,
+						  day        => $tday,
+						  pause_mode => $pause_mode,
+						}
+		) if $cfg->refresh_legacy;
 	}
 
 }

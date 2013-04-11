@@ -357,8 +357,8 @@ sub compile_table {
 		from [TQASched].[dbo].[Update_History]
 		where
 		sched_id = $sched_id
+		and datediff(day, feed_date, '$dbdate') < 6
 		$filter
-		--and cast( floor( cast([timestamp] as float) ) as datetime) = '$headerdate'
 		order by feed_date desc
 	";
 			#say 'preparing history query';
@@ -368,6 +368,8 @@ sub compile_table {
 		my ( $hist_id, $hist_offset, $filedate, $filenum, $hist_ts, $late,
 			 $feed_date, $seq_num, $transnum )
 			= $hist_query->fetchrow_array();
+
+		# if no history record, feed date was too far in past - wait or late
 
 		# skip 'wait' updates when searching by feed date
 		if (    defined $feed_date
@@ -458,6 +460,7 @@ sub compile_table {
 }
 
 # assign a style to row based on count
+# TODO add red border to late but recvd
 sub row_info {
 	my ( $row_count,   $late,    $hist_id,  $sched_offset,
 		 $hist_offset, $hist_ts, $filedate, $filenum,
@@ -515,6 +518,7 @@ sub row_info {
 	my $row_class;
 
 	# this is an empty update, change its color
+	# TODO add late/error correction logic here
 	if (    defined $late
 		 && $late       eq 'E'
 		 && $status     eq 'recv'

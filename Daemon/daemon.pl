@@ -76,7 +76,7 @@ sub refresh {
 
 	my ( $year, $month, $day ) = get_today();
 
-	#my ( $year, $month, $day ) = ( 2013, 4, 8 );
+	#my ( $year, $month, $day ) = ( 2013, 4, 12 );
 
 	# TODO fork children to do each refresh (how to handle handles?)
 

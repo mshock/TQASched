@@ -2352,7 +2352,7 @@ sub refresh_legacy {
 			elsif ( $cmp_result == -1 ) {
 				#say "waiting on $name, last trans: $trans_offset";
 				#say "late $name $trans_offset to offset: $sched_offset";
-				
+								next if !$status;
 								update_history( { update_id    => $update_id,
 												  sched_id     => $sched_id,
 												  trans_offset => -1,

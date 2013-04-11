@@ -758,6 +758,9 @@ sub get_title {
 	elsif ($status =~ m/error/) {
 		$title = 'feed in error state'
 	}
+	elsif ($status =~ m/wait/) {
+		$title = 'still waiting'
+	}
 	return "title='$title'";
 }
 

@@ -1749,6 +1749,7 @@ sub refresh_dis {
 		where ud.update_id = us.update_id
 		and u.update_id = ud.update_id
 		and u.is_legacy = 0
+		and us.enabled = 1
 		$filter_sched
 		";
 		dsay $expected;

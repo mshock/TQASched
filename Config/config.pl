@@ -211,6 +211,12 @@ sub define_defaults {
 			ARGS => ':s',
 			ALIAS => 'enable_refresh',
 		},
+		report_show_cols => {
+			DEFAULT => '',
+			ARGS => ':s',
+			ALIAS => 'show_cols',
+		},
+		
 		# optional window title, useful for side-by-side comparisons
 		report_title => {
 			DEFAULT => '',

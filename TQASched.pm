@@ -27,7 +27,7 @@ use constant REGEX_TRUE => qr/^\s*(?:true|(?:t)|(?:y)|yes|(?:1))\s*$/i;
 
 # stuff to export to all subscripts
 our @EXPORT
-	= qw(load_conf refresh_handles kill_handles write_log usage redirect_stderr exec_time find_sched check_handles dsay @db_hrefs @CLI REGEX_TRUE $debug_mode);
+	= qw(load_conf time2offset now_offset refresh_handles kill_handles write_log usage redirect_stderr exec_time find_sched check_handles dsay @db_hrefs @CLI REGEX_TRUE $debug_mode);
 
 # anything used only in a single subscript goes here
 our @EXPORT_OK = qw(refresh_legacy refresh_dis);
@@ -567,7 +567,8 @@ sub extract_row_init {
 # extract row into hash based on column number
 # for loading checklist entries
 sub extract_row_daemon {
-	my ( $col, $cell, $row_href ) = @_;
+	my ( $col, $cell, $row_href, $skipping ) = @_;
+	$skipping ||= 0;
 
 	# get formatted excel value for most columns
 	my $value = $cell ? $cell->value() : '';
@@ -601,16 +602,17 @@ sub extract_row_daemon {
 		when (/^4$/) {
 			unless ($value) {
 
-				#say "\terror parsing date field";
+				dsay "\terror parsing date field" unless $skipping;
 				return;
 			}
 
 			# extract unformatted datetime and convert to filedate integer
 			my $time_excel = $cell->unformatted();
-			my $value = ExcelFmt( 'yyyymmdd', $time_excel );
+			my $formatted_value = ExcelFmt( 'yyyymmdd', $time_excel );
 
 			# skip if not scheduled for this day
-			$row_href->{filedate} = $value ? $value : return;
+			$row_href->{filedate}
+				= $formatted_value ? $formatted_value : $value;
 		}
 
 		# file num
@@ -734,8 +736,8 @@ sub now_offset {
 sub get_wd {
 	my ($date) = @_;
 	my ( $year, $month, $day ) = ( $date =~ m!(\d{4})\D?(\d{2})\D?(\d{2})! );
-	dsay ( $year, $month, $day );
-	
+	dsay( $year, $month, $day );
+
 	if ( !defined $year || !defined $month || !defined $day ) {
 		$date ||= '<undef>';
 		warn "unable to parse date for weekday: $date";
@@ -1020,6 +1022,42 @@ sub update_history {
 		  $feed_date, $seq_num
 	);
 
+	# K = skipped
+	if ( $is_legacy && $late_q eq 'K' ) {
+		dsay "\tchecking legacy skip...";
+		my $select_skip_query = "
+			select hist_id, late from tqasched.dbo.update_history
+			where feed_date = '$feed_date'
+			and sched_id = '$sched_id'
+		";
+
+		my ( $hist_id, $status )
+			= $dbh_sched->selectrow_array($select_skip_query);
+		dsay( $hist_id, $status );
+
+		# the last record for this sched_id, feed_date wasn't a skip?
+		# could update...
+		if ( defined $status && $status ne 'K' ) {
+			say "\tattempted to skip previously stored update";
+		}
+		elsif ( !defined $hist_id ) {
+			$trans_num ||= 'NULL';
+			$seq_num ||= 'NULL';
+			my $insert_skip_query = "
+				insert into tqasched.dbo.update_history
+				values 
+				($update_id, $sched_id, 
+				$trans_offset, $fd_q, $fn_q, 
+				GETUTCDATE(), 'K', $trans_num, 
+				'$feed_date', $seq_num) 
+		";
+			say $insert_skip_query;
+
+			$dbh_sched->do($insert_skip_query);
+		}
+		return;
+	}
+
 	#say "$update_id $sched_id $trans_offset";
 	#say "( $update_id, $sched_id, $trans_offset, $late_q, $fd_q, $fn_q )";
 	# if there was a trasnum some things need to be done:
@@ -1182,9 +1220,9 @@ sub update_history {
 		say "\t$update_id inserting (found)";
 
 		# if skipped, change status for insert
-		if ( $fd_q =~ m/skipped/i || $fn_q =~ m/skipped/i ) {
-			( $fd_q, $fn_q ) = ( 0, 0 );
-			$late_q = 'S';
+		if ( $fd_q =~ m/skip|hold/i || $fn_q =~ m/skip|hold/i ) {
+			( $fd_q, $fn_q ) = ( 'NULL', 'NULL' );
+			$late_q = 'K';
 		}
 		$fd_q    ||= 0;
 		$fn_q    ||= 0;
@@ -1198,7 +1236,6 @@ sub update_history {
 			($update_id, $sched_id, $trans_offset, $fd_q, $fn_q, GetUTCDate(), '$late_q', $trans_num, '$feed_date', $seq_num )
 		";
 
-		#say $insert_hist;
 		$dbh_sched->do($insert_hist) or warn "could not insert!!!\n";
 	}
 
@@ -1707,6 +1744,20 @@ sub create_checklist {
 	return copy( $mastersheet, $checklist_path );
 }
 
+# utility for changing the scheduled time for an update
+sub update_scheduling {
+	my ($update_id) = @_;
+
+	my $update_sched_query = "
+		update [TQASched].dbo.Update_Schedule
+		set sched_epoch = ? 
+		where
+		update_id = ?
+	";
+
+	my $sth_update = $dbh_sched->prepare($update_sched_query);
+}
+
 # poll auh metadata for DIS feed statuses
 sub refresh_dis {
 
@@ -1762,29 +1813,7 @@ sub refresh_dis {
 		# iterate over each of them and determine if they are completed
 		for my $update_aref ( @{$updates_aref} ) {
 
-			# pause mode after first run
-			if ( $pause_mode && !$first_run ) {
-				my $user_input = '';
-				say '[PAUSE]';
-
-				# Term::ReadKey to avoid having to hit return
-				# raw mode
-				ReadMode 4;
-				while ( not defined( $user_input = ReadKey(-1) ) ) { }
-
-				# original mode
-				ReadMode 0;
-				if ( $user_input =~ m/Q/i ) {
-					say 'quitting by user request';
-					exit;
-				}
-			}
-			elsif ($pause_mode) {
-				say
-					'pause mode enabled, press any key to step through updates';
-				say 'see docs for special commands in pause mode';
-				$first_run = 0;
-			}
+			$first_run = pause_mode($first_run) if $pause_mode;
 			my $trans_offset;
 			my ( $feed_year, $feed_mon, $feed_day );
 
@@ -2149,41 +2178,22 @@ sub refresh_legacy {
 		for ( my $row = $row_min; $row <= $row_max; $row++ ) {
 
 			next if $row <= 1;
-
-			# pause mode after first run
-			if ( $pause_mode && !$first_run ) {
-				if ($blank_flag) {
-					$blank_flag = 0;
-				}
-				else {
-					my $user_input = '';
-					say '[PAUSE]';
-
-					# Term::ReadKey to avoid having to hit return
-					# raw mode
-					ReadMode 4;
-					while ( not defined( $user_input = ReadKey(-1) ) ) { }
-
-					# original mode
-					ReadMode 0;
-					if ( $user_input =~ m/Q/i ) {
-						say 'quitting by user request';
-						exit;
-					}
-				}
+			if ($blank_flag) {
+				$blank_flag = 0;
 			}
-			elsif ($pause_mode) {
-				say
-					'pause mode enabled, press any key to step through updates';
-				say 'see docs for special commands in pause mode';
-				$first_run = 0;
+			else {
+				$first_run = pause_mode( $first_run ) if $pause_mode;
 			}
 
 			# per-update hash of column values
 			my $row_data = {};
 			for ( my $col = $col_min; $col <= $col_max; $col++ ) {
 				my $cell = $worksheet->get_cell( $row, $col );
-				unless ( extract_row_daemon( $col, $cell, $row_data ) ) {
+				unless ( extract_row_daemon(
+									$col, $cell, $row_data, defined $tsched_id
+						 )
+					)
+				{
 				}
 				else {
 					if (    $row_data->{time_block}
@@ -2202,7 +2212,7 @@ sub refresh_legacy {
 			unless ( exists $row_data->{update} ) {
 				$blank_flag = 1;
 
-				say "\tblank row, skip";
+				dsay "blank row, skip";
 				next;
 			}
 
@@ -2210,22 +2220,23 @@ sub refresh_legacy {
 
 			my $update_id = get_update_id($name);
 			unless ($update_id) {
-				say "\tcould not find update ID for $name";
+				dsay "\tcould not find update ID for $name" unless $tsched_id;
 				next;
 			}
-			say "\t$name\t$update_id";
 
 			# TODO implement better way of handling legacy CT TZ border feeds
 			# correct weekday for border cases
 			my $border_flag = 0;
 			my $tmp_weekday_code;
-			if (    $update_id == 406
-				 || $update_id == 405
-				 || $update_id == 403
-				 || $update_id == 407
-				 || $update_id == 408 )
+			if ($update_id == 406
+
+				# || $update_id == 405
+				|| $update_id == 403 
+				|| $update_id == 407 || $update_id == 408
+				)
 			{
-				say "\tfixing border weekday from $weekday_code";
+				dsay "\tfixing border weekday from $weekday_code"
+					unless $tsched_id;
 				$tmp_weekday_code = $weekday_code;
 				$weekday_code++;
 				$weekday_code = 0 if $weekday_code == 7;
@@ -2238,14 +2249,18 @@ sub refresh_legacy {
 				where update_id = $update_id
 				and weekday = $weekday_code
 			";
-
 			my ( $sched_offset, $sched_id )
 				= $dbh_sched->selectrow_array($sched_query);
 
 			unless ( defined $sched_offset ) {
 
 # TODO handle this error by finding the correct schedule entry to update rather than failing
-				say "\toffset not defined";
+				dsay "\toffset not defined $update_id";
+				next;
+			}
+
+			if ( defined $tsched_id && $tsched_id != $sched_id ) {
+				dsay 'skipping to target';
 				next;
 			}
 
@@ -2256,12 +2271,14 @@ sub refresh_legacy {
 				$weekday_code = $tmp_weekday_code;
 			}
 
+			say "\t$name\t$update_id";
+			my $status;
 			my ( $trans_ts, $trans_offset, $trans_num, $seq_num )
 				= ( 0, -1, -1, 0 );
 			if (    $row_data->{filedate}
 				 && $row_data->{filenum}
-				 && $row_data->{filedate} !~ m/skip/i
-				 && $row_data->{filenum} !~ m/skip/i )
+				 && $row_data->{filedate} !~ m/skip|hold/i
+				 && $row_data->{filenum} !~ m/skip|hold/i )
 			{
 				( $trans_ts, $trans_num, $seq_num )
 					= lookup_update( $row_data->{filedate},
@@ -2269,7 +2286,13 @@ sub refresh_legacy {
 				$trans_offset = $trans_ts ? datetime2offset($trans_ts) : -1;
 
 			}
-
+			# this was marked for skip or on hold
+			elsif ($row_data->{filedate} =~ m/skip|hold/i || $row_data->{filenum} =~ m/skip|hold/i) {
+				dsay "\tfound skip or hold";
+				$status = 'K';
+				$row_data->{filedate} = 'NULL';
+				$row_data->{filenum} = 'NULL';
+			}
 			# compare transaction execution time to schedule offset
 			# GMT now		# GMT sched
 			my $cmp_result;
@@ -2290,13 +2313,13 @@ sub refresh_legacy {
 			# if it's within an hour of the scheduled time, mark as on time
 			# could also be early
 			if ( $cmp_result == 0 ) {
-
+				$status ||= 'N';
 #	say "$update_id $name $trans_ts $trans_offset $sched_offset $cmp_result" if $trans_ts;
 #say "ontime $name $trans_offset offset: $sched_offset";
 				update_history( { update_id    => $update_id,
 								  sched_id     => $sched_id,
 								  trans_offset => $trans_offset,
-								  late         => 'N',
+								  late         => $status,
 								  filedate     => $row_data->{filedate},
 								  filenum      => $row_data->{filenum},
 								  transnum     => $trans_num,
@@ -2310,12 +2333,12 @@ sub refresh_legacy {
 			# otherwise it either has not come in or it is late
 			# late
 			elsif ( $cmp_result == 1 ) {
-
+				$status ||= 'Y';
 				#say "late $name $trans_offset to offset: $sched_offset";
 				update_history( { update_id    => $update_id,
 								  sched_id     => $sched_id,
 								  trans_offset => $trans_offset,
-								  late         => 'Y',
+								  late         => $status,
 								  filedate     => $row_data->{filedate},
 								  filenum      => $row_data->{filenum},
 								  is_legacy    => 1,
@@ -2327,27 +2350,55 @@ sub refresh_legacy {
 
 			# possibly just not recvd yet
 			elsif ( $cmp_result == -1 ) {
-
 				#say "waiting on $name, last trans: $trans_offset";
 				#say "late $name $trans_offset to offset: $sched_offset";
-				#				update_history( { update_id    => $update_id,
-				#								  sched_id     => $sched_id,
-				#								  trans_offset => -1,
-				#								  late         => 'N',
-				#								  filedate     => '',
-				#								  filenum      => '',
-				#								  is_legacy    => 1,
-				#								  feed_date    => $feed_date,
-				#								}
-				#				);
+				
+								update_history( { update_id    => $update_id,
+												  sched_id     => $sched_id,
+												  trans_offset => -1,
+												  late         => $status,
+												  filedate     => 'NULL',
+												  filenum      => 'NULL',
+												  is_legacy    => 1,
+												  feed_date    => $feed_date,
+												}
+								);
 			}
 			else {
-				warn
+				say
 					"\tFAILED transaction offset sanity check: $name $sched_offset\n";
 				next;
 			}
 		}
 	}
+}
+
+# insert a user input pause with options for stepping through loops
+sub pause_mode {
+	my ($first_run ) = @_;
+	# pause mode after first run
+	if ( !$first_run ) {
+
+		my $user_input = '';
+		say '[PAUSE]';
+
+		# Term::ReadKey to avoid having to hit return
+		# raw mode
+		ReadMode 4;
+		while ( not defined( $user_input = ReadKey(-1) ) ) { }
+
+		# original mode
+		ReadMode 0;
+		if ( $user_input =~ m/Q/i ) {
+			say 'quitting by user request';
+			exit;
+		}
+	}
+	else  {
+		say 'pause mode enabled, press any key to step through updates';
+		say 'see docs for special commands in pause mode';
+	}
+	return 0;
 }
 
 # calculate a particular DoW's feed date

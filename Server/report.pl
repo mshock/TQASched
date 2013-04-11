@@ -41,6 +41,7 @@ $upd_checked     = cfg_checked( $cfg->search_upd );
 $report_title    = $cfg->title || 'Monitor :: TQASched';
 $refresh_enabled = cfg_checked( $cfg->enable_refresh );
 my $refresh_seconds = $cfg->refresh_seconds || 0;
+my $show_cols = cfg_checked($cfg->show_cols);
 
 if ( $legacy_filter && $dis_filter ) {
 	( $legacy_filter, $dis_filter ) = ( '', '' );
@@ -99,17 +100,7 @@ else {
 
 print_header();
 
-print_thead(
-	qw(
-		Feed
-		Feed_ID
-		Priority
-		Scheduled_Time
-		Received_Time
-		Feed_Date
-		UPD
-		)
-);
+print_thead();
 
 compile_table();
 
@@ -163,10 +154,31 @@ sub print_header {
 }
 
 sub print_thead {
-	my @headers = @_;
-	if ($debug_mode) {
-		push @headers, 'Timestamp';
-	}
+	my @headers =  
+	$debug_mode || $show_cols ? 
+		qw(
+		Feed
+		Feed_ID
+		Priority
+		Scheduled_Time
+		Received_Time
+		Feed_Date
+		UPD
+		Trans_Num
+		Seq_Num
+		)
+		:
+		qw(
+		Feed
+		Feed_ID
+		Scheduled_Time
+		Received_Time
+		UPD
+		)
+		;
+	
+	push @headers, 'Timestamp' if $debug_mode;
+
 	my $num_headers   = scalar @headers;
 	my $left_colspan  = int( $num_headers / 2 );
 	my $right_colspan = $num_headers - $left_colspan;
@@ -221,7 +233,9 @@ sub print_thead {
 					<input type='checkbox' id='enable_refresh' name='enable_refresh' value='true' onclick='this.form.submit();' $refresh_enabled />
 						<label for='enable_refresh'>Auto Refresh</label>
 					<input type='checkbox' id='float_stat_cb' name='float_status' value='true' onclick='this.form.submit();' $float_status />
-						<label for='float_stat_cb'>Float Status</label>				
+						<label for='float_stat_cb'>Float Status</label>		
+					<input type='checkbox' id='show_cols_cb' name='show_cols' value='true' onclick='this.form.submit();' $show_cols />
+						<label for='show_cols_cb'>Show All</label>			
 				</th>
 			</tr>
 			<tr>
@@ -340,7 +354,8 @@ sub compile_table {
 	#say 'iterating...';
 	my $row_count = 0;
 	my %display_rows;
-	my $border_prev = 0;
+	my $border_prev;
+	my ($border_prev1, $border_prev2) = (0,0);
 	for my $row_aref ( @{$sched_aref} ) {
 
 		my ( $sched_id, $update_id, $sched_offset, $name, $is_legacy,
@@ -360,7 +375,7 @@ sub compile_table {
 		sched_id = $sched_id
 		and datediff(day, feed_date, '$dbdate') < 6
 		$filter
-		order by feed_date desc
+		order by feed_date, hist_id desc
 	";
 			#say 'preparing history query';
 	my $hist_query = $dbh_sched->prepare($select_history);
@@ -393,42 +408,38 @@ sub compile_table {
 						$filedate,     $filenum,     $feed_date,
 						$prev_date
 			);
+			
+		
 		my $border_class1 = '';
 		my $border_class2 = '';
-		if ( $row_class =~ m/empty/ ) {
-			$border_class1 = 'emptyborder1';
-			if ( !$border_prev ) {
-				$border_class2 = 'emptyborder2';
-				$border_prev   = 1;
-			}
-			else {
-				$border_class2 = 'emptyborder3';
-			}
-		}
-		else {
-			$border_prev = 0;
-		}
+		($border_class1, $border_class2, $border_prev) = format_border($row_class, $border_prev);
 
-		my $tr_title = "title='";
-		$tr_title .= defined $seq_num
-			? "auhseqnum = $seq_num\n"
-			: "no seqnum\n";
-		$tr_title .= defined $transnum && $transnum > 0 ? "distransnum = $transnum" : 'no transnum';
-		$tr_title .= "'";
+		my $tr_title = get_title($row_class);
+#		$tr_title .= defined $seq_num
+#			? "auhseqnum = $seq_num\n"
+#			: "no seqnum\n";
+#		$tr_title .= defined $transnum && $transnum > 0 ? "distransnum = $transnum" : 'no transnum';
+#		$tr_title .= "'";
+
+		$seq_num ||= 'N/A';
+		$transnum ||= 'N/A';
 		my $update_row = sprintf( "
 		<tr $tr_title class='$border_class1 $border_class2 $row_class'>
 			<td>%s\t%s</td>
 			<td>%s</td>
-			<td>%s</td>
-			<td>%s</td>
-			<td>%s</td>
+			%s
 			<td>%s</td>
 			<td>%s</td>
 			%s
+			<td>%s</td>
+			%s
+			%s
+			%s
 		</tr>
 		",
-			$name, ( $debug_mode ? "[$update_id]" : '' ), $feed_id, $priority,
-			$sched_time, $recvd_time, $feed_date_pretty, $update,
+			$name, ( $debug_mode ? "[$update_id]" : '' ), $feed_id, ($show_cols || $debug_mode ? "<td>$priority</td>" : ''),
+			$sched_time, $recvd_time, ($show_cols || $debug_mode ? "<td>$feed_date_pretty</td>": ''), $update,
+			($show_cols || $debug_mode ? "<td>$transnum</td>": ''),($show_cols || $debug_mode ? "<td>$seq_num</td>": ''),
 			( $debug_mode ? "<td>$daemon_ts</td>" : '' ) );
 
 		#say "inserting $status, $sched_id";
@@ -441,7 +452,7 @@ sub compile_table {
 	}
 	return unless $float_status;
 
-	my @stati = qw(late wait recv);
+	my @stati = qw(late wait laterecv recv);
 	for my $status_key (@stati) {
 		$row_count = 0;
 		for my $line ( @{ $display_rows{$status_key} } ) {
@@ -460,6 +471,47 @@ sub compile_table {
 	}
 }
 
+# generate appropriate border for the row class
+sub format_border {
+	my ($row_class, $border_prev) = @_;
+	
+	my ($border_class1, $border_class2) = ('', '');
+	if ($row_class =~ m/laterecv/) {
+		$border_class1 = 'lateborder1';
+			if ( !$border_prev ) {
+				$border_class2 = 'lateborder2';
+				$border_prev   = 1;
+			}
+			else {
+				$border_class2 = 'lateborder3';
+		}
+	}
+	elsif ($row_class =~ m/empty/) {
+		$border_class1 = 'emptyborder1';
+			if ( !$border_prev ) {
+				$border_class2 = 'emptyborder2';
+				$border_prev   = 1;
+			}
+			else {
+				$border_class2 = 'emptyborder3';
+		}
+	}
+	elsif ($row_class =~ m/skip/) {
+		$border_class1 = 'skipborder1';
+			if ( !$border_prev ) {
+				$border_class2 = 'skipborder2';
+				$border_prev   = 1;
+			}
+			else {
+				$border_class2 = 'skipborder3';
+		}
+	}
+	else {
+		$border_prev = 0;
+	}
+	return ($border_class1, $border_class2, $border_prev);
+}
+
 # assign a style to row based on count
 # TODO add red border to late but recvd
 sub row_info {
@@ -474,10 +526,11 @@ sub row_info {
 	my $row_parity = $row_count % 2;
 
 	my $sched_time = offset2time( $sched_offset, 1 );
-
+	
+	
 	# if there is a history record, it can be ontime or late
 	my ( $status, $daemon_ts, $recvd_time, $update );
-	if ( $hist_id && !( date_math(-7) eq $feed_date ) ) {
+	if ( $hist_id && !( date_math(-7) eq $feed_date ) && $late ne 'K' ) {
 		if ( $late eq 'N' || $late eq 'E' ) {
 			if (    !defined $prev_date
 				 && $late eq 'E'
@@ -505,10 +558,20 @@ sub row_info {
 		$recvd_time = $filedate ? offset2time($hist_offset) : 'N/A';
 		$daemon_ts  = $hist_ts;
 		$update     = $filedate ? "$filedate-$filenum" : 'N/A';
+		
+		$status =~ s/late/laterecv/;
+	}
+	# skipped update
+	elsif (defined $late && $late eq 'K') {
+		$status = 'skip';
+		$recvd_time = 'N/A';
+		$update     = 'N/A';
+		$daemon_ts  = $hist_ts;
 	}
 
-	# no history record, still waiting
+	# no history record, still waiting or it is late
 	else {
+		
 		$recvd_time = 'N/A';
 		$status     = 'wait';
 		$daemon_ts  = 'N/A';
@@ -516,7 +579,7 @@ sub row_info {
 		$feed_date  = 'N/A';
 	}
 
-	my $row_class;
+	my $row_class = '';
 
 	# this is an empty update, change its color
 	# TODO add late/error correction logic here
@@ -528,9 +591,13 @@ sub row_info {
 	{
 		$row_class = 'empty' . ( $row_parity ? '_even' : '_odd' );
 	}
+	elsif (!defined $late && $status eq 'wait') {
+		$row_class = (now_offset() > $sched_offset ? 'error' : 'wait') . ( $row_parity ? '_even' : '_odd' );
+	}
 	else {
 		$row_class = $status . ( $row_parity ? '_even' : '_odd' );
 	}
+	
 
 	return ( $row_class, $status, $sched_time, $recvd_time,
 			 $daemon_ts, $update, $feed_date );
@@ -656,17 +723,42 @@ sub cfg_checked {
 	}
 
 }
+#
+## convert 24hr time to seconds offset from beginning of the day
+## next it will have a day offset in seconds added to it where Sunday = 0
+#sub time2offset {
+#	my $time_string = shift;
+#	my ( $hours, $minutes ) = ( $time_string =~ m/(\d+):(\d+)/ );
+#	unless ( defined $hours && defined $minutes ) {
+#		warn "\tparsing error converting time to offset: $time_string\n";
+#		return;
+#	}
+#	return $hours * 3600 + $minutes * 60;
+#}
 
-# convert 24hr time to seconds offset from beginning of the day
-# next it will have a day offset in seconds added to it where Sunday = 0
-sub time2offset {
-	my $time_string = shift;
-	my ( $hours, $minutes ) = ( $time_string =~ m/(\d+):(\d+)/ );
-	unless ( defined $hours && defined $minutes ) {
-		warn "\tparsing error converting time to offset: $time_string\n";
-		return;
+# returns human readable row title for given status
+sub get_title {
+	my ($status) = @_;
+	my $title = '';
+	if ($status =~ m/^recv/) {
+		$title = 'received on time'
 	}
-	return $hours * 3600 + $minutes * 60;
+	elsif ($status =~ m/laterecv/) {
+		$title = 'received late'
+	}
+	elsif ($status =~ m/late$/) {
+		$title = 'late, not yet received'
+	}
+	elsif ($status =~ m/empty/) {
+		$title = 'received but empty'
+	}
+	elsif ($status =~ m/skip/) {
+		$title = 'skipped'
+	}
+	elsif ($status =~ m/error/) {
+		$title = 'feed in error state'
+	}
+	return "title='$title'";
 }
 
 # do date math in days on current view's date

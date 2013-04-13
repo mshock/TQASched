@@ -77,7 +77,7 @@ sub define_defaults {
 		},
 		# allow daemon to poll updates for dis feeds
 		daemon_refresh_dis => {
-							DEFAULT => 0,
+							DEFAULT => 1,
 							ARGS    => '!',
 							ALIAS   => 'refresh_dis',
 		},

@@ -332,7 +332,7 @@ sub compile_table {
       $filter
       order by sched_epoch, name asc
 	";
-
+	#say $select_schedule;
 	$filter = '';
 	if ( $prev_search && $search_type eq 'FEED_DATE' ) {
 		$filter .= " and feed_date = '$prev_search'";
@@ -378,9 +378,8 @@ sub compile_table {
 		sched_id = $sched_id
 		and datediff(day, feed_date, '$dbdate') < 6
 		$filter
-		order by feed_date, hist_id desc
-	";
-			#say 'preparing history query';
+		order by hist_id desc
+	";#say $select_history if $sched_id == 271;
 	my $hist_query = $dbh_sched->prepare($select_history);
 		$hist_query->execute();
 		

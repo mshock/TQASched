@@ -368,6 +368,9 @@ sub compile_table {
 #			next;
 #		}
 		
+		if ($is_legacy) {
+			$sched_id--;
+		}
 		my $select_history = "
 		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum
 		from [TQASched].[dbo].[Update_History]

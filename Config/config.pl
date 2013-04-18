@@ -93,6 +93,7 @@ sub define_defaults {
 		# TODO more commands - rerun, skip ahead, etc
 		daemon_pause_mode => {
 			DEFAULT => 0,
+			ARGS => '!',
 			ALIAS => 'pause_mode',
 		},
 		# scheduling configs

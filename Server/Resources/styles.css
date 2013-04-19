@@ -65,14 +65,14 @@ tr.skipborder3 td {
 }
 
 
-tr.emptyborder1 td:first-child { border-left: 5px solid #3282B8;  }
-tr.emptyborder1 td:last-child { border-right: 5px solid #3282B8;  }
+tr.emptyborder1 td:first-child { border-left: 5px solid #0063A6;  }
+tr.emptyborder1 td:last-child { border-right: 5px solid #0063A6;  }
 tr.emptyborder2 td {
-	border-top: 5px solid #3282B8;
-	border-bottom: 5px solid #3282B8;
+	border-top: 5px solid #0063A6;
+	border-bottom: 5px solid #0063A6;
 }
 tr.emptyborder3 td {
-	border-bottom: 5px solid #3282B8; 
+	border-bottom: 5px solid #006EB8; 
 }
 
 tr.lateborder1 td:first-child { border-left: 4px solid #FF0000; }

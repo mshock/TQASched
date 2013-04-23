@@ -2140,8 +2140,8 @@ sub refresh_legacy {
 	check_handles();
 
 	# attempt to find & download the latest spreadsheet from OpsDocs server
-	my $sched_xls
-		= '\\\\10.16.40.216/dataops/Operations_Update_Summary/Checklist_2013/DailyCheckList_20130408.xls';
+	# TODO rewrite find_sched to work with the new format
+	my $sched_xls =  '\\\\10.16.40.216/dataops/Operations_Update_Summary/Checklist_2013/DailyCheckList_20130422.xls';
 
 	# find_sched( $tyear, $tmonth, $tday );
 

@@ -1042,7 +1042,7 @@ sub update_history {
 		}
 		elsif ( !defined $hist_id ) {
 			$trans_num ||= 'NULL';
-			$seq_num ||= 'NULL';
+			$seq_num   ||= 'NULL';
 			my $insert_skip_query = "
 				insert into tqasched.dbo.update_history
 				values 
@@ -1352,12 +1352,38 @@ sub load_conf {
 	# set the debug mode on load
 	$debug_mode = $cfg->debug;
 
+	# check that usage is availabe and/or defined
+	$cfg->pod( find_pod_usage($cfg) );
+
 	# get hashes of database connection information
 	(  $sched_db, $auh_db,  $prod1_db, $dis1_db,
 	   $dis2_db,  $dis3_db, $dis4_db,  $dis5_db )
 		= map { get_handle_hash($_) } qw(sched_db auh_db prod1_db 1 2 3 4 5);
 
 	return $cfg;
+}
+
+# verify that usage POD file exists
+# returns path if found, else returns undef
+# TODO use pod_find and break doc into components
+sub find_pod_usage {
+	my ($cfg) = @_;
+	my ( $pod_msg, $pod_error );
+	if ( !defined $cfg->pod ) {
+		$pod_msg   = "POD documentation file not configured.";
+		$pod_error = 1;
+		dsay "[Usage not available]";
+	}
+	elsif ( !-f $cfg->pod ) {
+		$pod_msg   = "POD documentation file not found: $cfg->pod.";
+		$pod_error = 1;
+	}
+	else {
+		$pod_msg = "POD docs found in $cfg->pod";
+	}
+	say $pod_msg if defined $cfg->verbosity && $cfg->verbosity > 1;
+	dsay '[Usage not available]' if $pod_error;
+	return $pod_error ? 0 : $cfg->pod;
 }
 
 # parse YYYYMMDD into (y,m,d)
@@ -1373,19 +1399,22 @@ sub parse_filedate {
 
 # handle any errors in AppConfig parsing - namely log them
 sub appconfig_error {
+	my $msg = sprintf(@_);
+
+	dsay $msg;
 
 	# hacky way to force always writing this log to top-level dir
 	# despite the calling script's location
-	my $top_log = ( __PACKAGE__ ne 'TQASched'
-					? $INC{'TQASched.pm'} =~ s!\w+\.pm!!gr
-					: ''
-	) . $cfg->log();
+	#	my $top_log = ( __PACKAGE__ ne 'TQASched'
+	#					? $INC{'TQASched.pm'} =~ s!\w+\.pm!!gr
+	#					: ''
+	#	) . $cfg->log();
 
-	write_log( { logfile => $top_log,
-				 type    => 'WARN',
-				 msg     => join( "\t", @_ ),
-			   }
-	);
+	#	write_log( { logfile => $top_log,
+	#				 type    => 'WARN',
+	#				 msg     => $msg, #join( "\t", @_ )
+	#			   }
+	#	);
 }
 
 # build and return hashref of db connection info from configs
@@ -1765,9 +1794,9 @@ sub refresh_dis {
 
 	my $opts_href = shift;
 
-	my ( $tyear, $tmonth, $tday, $tsched_id, $pause_mode )
+	my ( $tyear, $tmonth, $tday, $tsched_id, $pause_mode, $tupdate_id )
 		= map { exists $opts_href->{$_} ? $opts_href->{$_} : undef }
-		qw(year month day sched_id pause_mode);
+		qw(year month day sched_id pause_mode update_id);
 
 	my $target_date_string = sprintf '%u%02u%02u', $tyear, $tmonth, $tday;
 
@@ -1788,6 +1817,9 @@ sub refresh_dis {
 		my $filter_sched = "and us.weekday = $current_wd";
 		if ( defined $tsched_id ) {
 			$filter_sched = "and us.sched_id = $tsched_id";
+		}
+		elsif (defined $tupdate_id) {
+			$filter_sched .= "\nand us.update_id = $tupdate_id";
 		}
 
 		# get all updates expected for the current day
@@ -2141,7 +2173,8 @@ sub refresh_legacy {
 
 	# attempt to find & download the latest spreadsheet from OpsDocs server
 	# TODO rewrite find_sched to work with the new format
-	my $sched_xls =  '\\\\10.16.40.216/dataops/Operations_Update_Summary/Checklist_2013/DailyCheckList_20130422.xls';
+	my $sched_xls
+		= '\\\\10.16.40.216/dataops/Operations_Update_Summary/Checklist_2013/DailyCheckList_20130422.xls';
 
 	# find_sched( $tyear, $tmonth, $tday );
 
@@ -2182,7 +2215,7 @@ sub refresh_legacy {
 				$blank_flag = 0;
 			}
 			else {
-				$first_run = pause_mode( $first_run ) if $pause_mode;
+				$first_run = pause_mode($first_run) if $pause_mode;
 			}
 
 			# per-update hash of column values
@@ -2286,13 +2319,17 @@ sub refresh_legacy {
 				$trans_offset = $trans_ts ? datetime2offset($trans_ts) : -1;
 
 			}
+
 			# this was marked for skip or on hold
-			elsif ($row_data->{filedate} =~ m/skip|hold/i || $row_data->{filenum} =~ m/skip|hold/i) {
+			elsif (    $row_data->{filedate} =~ m/skip|hold/i
+					|| $row_data->{filenum} =~ m/skip|hold/i )
+			{
 				dsay "\tfound skip or hold";
-				$status = 'K';
+				$status               = 'K';
 				$row_data->{filedate} = 'NULL';
-				$row_data->{filenum} = 'NULL';
+				$row_data->{filenum}  = 'NULL';
 			}
+
 			# compare transaction execution time to schedule offset
 			# GMT now		# GMT sched
 			my $cmp_result;
@@ -2314,6 +2351,7 @@ sub refresh_legacy {
 			# could also be early
 			if ( $cmp_result == 0 ) {
 				$status ||= 'N';
+
 #	say "$update_id $name $trans_ts $trans_offset $sched_offset $cmp_result" if $trans_ts;
 #say "ontime $name $trans_offset offset: $sched_offset";
 				update_history( { update_id    => $update_id,
@@ -2334,6 +2372,7 @@ sub refresh_legacy {
 			# late
 			elsif ( $cmp_result == 1 ) {
 				$status ||= 'Y';
+
 				#say "late $name $trans_offset to offset: $sched_offset";
 				update_history( { update_id    => $update_id,
 								  sched_id     => $sched_id,
@@ -2350,19 +2389,20 @@ sub refresh_legacy {
 
 			# possibly just not recvd yet
 			elsif ( $cmp_result == -1 ) {
+
 				#say "waiting on $name, last trans: $trans_offset";
 				#say "late $name $trans_offset to offset: $sched_offset";
-								next if !$status;
-								update_history( { update_id    => $update_id,
-												  sched_id     => $sched_id,
-												  trans_offset => -1,
-												  late         => $status,
-												  filedate     => 'NULL',
-												  filenum      => 'NULL',
-												  is_legacy    => 1,
-												  feed_date    => $feed_date,
-												}
-								);
+				next if !$status;
+				update_history( { update_id    => $update_id,
+								  sched_id     => $sched_id,
+								  trans_offset => -1,
+								  late         => $status,
+								  filedate     => 'NULL',
+								  filenum      => 'NULL',
+								  is_legacy    => 1,
+								  feed_date    => $feed_date,
+								}
+				);
 			}
 			else {
 				say
@@ -2375,7 +2415,8 @@ sub refresh_legacy {
 
 # insert a user input pause with options for stepping through loops
 sub pause_mode {
-	my ($first_run ) = @_;
+	my ($first_run) = @_;
+
 	# pause mode after first run
 	if ( !$first_run ) {
 
@@ -2394,7 +2435,7 @@ sub pause_mode {
 			exit;
 		}
 	}
-	else  {
+	else {
 		say 'pause mode enabled, press any key to step through updates';
 		say 'see docs for special commands in pause mode';
 	}
@@ -2590,7 +2631,9 @@ sub redirect_stderr {
 
 sub usage {
 	my ($exit_val) = @_;
+
 	pod2usage( { -verbose => $cfg->verbosity,
+				 -input   => $cfg->pod,
 				 -exit    => $exit_val || 0
 			   }
 	);
@@ -2618,155 +2661,3 @@ sub clear_schedule {
 	return $dbh_sched->do('delete from [TQASched].dbo.[Update_Schedule]')
 		or die "error in clearing Schedule table\n", $dbh_sched->errstr;
 }
-
-=pod
-
-=head1 NAME
-
-TQASched - a module for monitoring both legacy and DIS feed timeliness using AUH metadata
-
-=head1 SYNOPSIS
-
-perl TQASched.pm [optional flags]
-
-=head1 DESCRIPTION
-
-AUH content schedule monitoring module
-the module itself contains all utility functions for this application
-however, only really needs to be called directly to initialize app database and do testing
-
-capable of running all or in part the sub-scripts which support the application:
-
-=over 4
-
-=item F<Server/server.pl>
-
-HTTP server script which serves the report and any other files
-
-=item F<Daemon/daemon.pl>
-
-daemon which cyclicly compares AUH metadata against scheduling rules and updates TQASched db accordingly
-
-=item F<Server/report.pl>
-
-script which dynamically generates the web application interface HTML 
-
-=back
-
-=head3 COMPONENTS:
-
-=over 4 
-
-=item B<server>
-
-start/debug http server (and by extension, the report)
-	
-=item B<daemon>
-
-start/debug scheduling daemon
-	
-=item B<report>
-
-generate report snapshot without running the server
-  
-=back
-
-=head1 OPTIONS
-
-=over 6
-
-=item B<-c --create-db>
-
-create database from scratch
-
-=item B<-d --start_daemon>
-
-fork the scheduling monitoring daemon script after startup
-
-=item B<-f --config-file>=I<configpath>
-
-specify path for config file in the command line
-defaults to TQASched.conf in current dir
-
-=item B<-h --help --version>
-
-print this manpage and exit
-
-=item B<-i --init_sched> 
-
-initialize schedule from master spreadsheet
-
-=item B<-l --logging>
-
-logging toggle, on/off
-
-=item B<-p --port>=I<portnumber>
-
-specify port the server hosts the web application on
-
-=item B<-s --start_server>
-
-fork the http server script to begin hosting the report script
-
-=back
-
-=head1 FILES
-
-=over 6
-
-=item F<TQASched.pm>
-
-this self-documented module, you're reading the manpage for it right now! 
-refer to the rest of the documentation for usage and configuration details
-
-=item F<TQASched.conf>
-
-C<.ini> style config file primarily for the database credentials but is capable of setting any other configuration variables as well
-
-=item F<Daemon/daemon.pl>
-
-daemon which cyclicly compares AUH metadata against scheduling rules and updates TQASched db accordingly
-daemon logs can be found in this subdirectory
-
-=item F<Server/server.pl>
-
-server script (also a daemon in its own right)
-hosts the output of the report file - the HTML webapp frontend
-also hosts various static files (css, js, generated xls files, etc.)
-server logs can be found in this subdirectory
-
-=item F<Server/report.pl>
-
-report script which dynamically generates HTML web application content based on the TQASched db
-report logs can be found in this subdirectory
-
-=item F<TQA_Update_Schedule.xls>
-
-master schedule checklist Excel spreadsheet
-this is used for either initializing the TQASched database
-or for adding new scheduling content
-parsing requires that the syntax of this document is strict so leave no trace 
-unless you know what you're doing - adding content row(s)
-removing content rows is not implemented yet and will have no effect on the db
-
-=item F<//E<lt>network.pathE<gt>/DailyChecklist_E<lt>daterangeE<gt>.xls>
-
-the operator checklist Excel spreadsheet for legacy content
-new sheets automatically generated in the network path by the daemon on weekly basis
-network path is generally set in configs
-date range in the filename is calculated
-strict formatting must be maintained in this file so that it may be parsed properly by the daemon
-
-=back
-
-=head1 AUTHOR
-
-Matt Shockley
-
-=head1 COPYRIGHT AND LICENSE
-Copyright 2012 Matt Shockley
-
-This program is free software; you can redistribute it and/or modify 
-it under the same terms as Perl itself.
-
-=cut

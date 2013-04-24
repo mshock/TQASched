@@ -276,6 +276,10 @@ sub define_defaults {
 		default_sql_definitions => { DEFAULT => 'Config/TQASched.sql',
 									 ALIAS   => 'create_script|sql_file'
 		},
+		default_pod_docs => {
+			DEFAULT => 'README.pod',
+			ALIAS => 'pod|readme|docs'
+		},
 		# used for toggling debug tools or reporting
 		default_debug => {
 			DEFAULT => 0,

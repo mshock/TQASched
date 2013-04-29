@@ -1818,7 +1818,7 @@ sub refresh_dis {
 		if ( defined $tsched_id ) {
 			$filter_sched = "and us.sched_id = $tsched_id";
 		}
-		elsif (defined $tupdate_id) {
+		elsif ( defined $tupdate_id ) {
 			$filter_sched .= "\nand us.update_id = $tupdate_id";
 		}
 
@@ -2523,7 +2523,7 @@ sub sched_id2feed_date {
 
 	# lookup weekday from schedule
 	my $date_lookup_query = "
-		select a.update_id, weekday, prev_date
+		select a.update_id, weekday, prev_date, is_legacy
 		from TQASched.dbo.Update_Schedule a
 		join 
 		TQASched.dbo.updates b
@@ -2532,18 +2532,19 @@ sub sched_id2feed_date {
 		sched_id = $sched_id		
 	";
 	dsay $date_lookup_query;
-	my ( $update_id, $wd, $prev_date )
+	my ( $update_id, $wd, $prev_date, $is_legacy )
 		= $dbh_sched->selectrow_array($date_lookup_query)
 		or dsay "sched_id $sched_id lookup failed" and return -1;
 
 	# prev day, need to go back to friday (usually)
-	if ( defined $prev_date && $prev_date == 1 ) {
+	# not for legacy
+	if ( ( defined $prev_date && $prev_date == 1 ) || $is_legacy ) {
 		dsay "rewinding";
 
-		# rollback to saturday properly
-		my $found   = 0;
-		my $rewinds = 0;
-		while ( !$found ) {
+		my ( $found, $rewinds );
+		until ( defined $found && $found ) {
+
+			# rollback to saturday properly
 			$wd = 6 if --$wd == -1;
 			$rewinds++;
 			my $weekday_sched_query = "
@@ -2557,8 +2558,28 @@ sub sched_id2feed_date {
 			my ($sched_id)
 				= $dbh_sched->selectrow_array($weekday_sched_query);
 
-			# keep going back until one is found
-			if ( defined $sched_id ) {
+			# stop rewinding for dis prev dates or legacy non-prev dates
+			# legacy prev dates require 1 more rewind
+			if ( defined $sched_id && !( $is_legacy && $prev_date ) ) {
+				$found = 1;
+			}
+
+			# legacy prev date is defined, but 0 for 1 more rewind run
+			elsif (    defined $sched_id
+					&& $is_legacy
+					&& $prev_date
+					&& !defined $found )
+			{
+				$found = 0;
+			}
+
+			# did the extra rewind for legacy w/ prev date
+			elsif (    defined $sched_id
+					&& $is_legacy
+					&& $prev_date
+					&& defined $found
+					&& $found == 0 )
+			{
 				$found = 1;
 			}
 		}

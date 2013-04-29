@@ -532,18 +532,25 @@ sub row_info {
 
 	my $sched_time = offset2time( $sched_offset, 1 );
 
-	# if there is a history record, it can be ontime or late
 	my ( $status, $daemon_ts, $recvd_time, $update );
-	if ( $hist_id && !( date_math(-7) eq $feed_date ) && $late ne 'K' ) {
+	# history record exists, the feed date is not equal to one week ago and it isn't a skipped update
+	if ( defined $hist_id && !( date_math(-7) eq $feed_date ) && $late ne 'K' ) {
+		# if marked as not late or empty
 		if ( $late eq 'N' || $late eq 'E' ) {
+			# if update isn't marked as a previous day
+			# and not empty (marked as N - this was marked as recvd but still could be wrong day)
+			# and yesterday's feed date equals current feed date (typically the case)
+			# and the offset is early day, probably processed previous GMT day
 			if (    !defined $prev_date
 				 && $late eq 'E'
 				 && date_math(-1) eq $feed_date
 				 && $sched_offset % 86400 < 10800 )
 			{
+				# think this was to mark updates as wait if they had previous empty updates and were also early day
 				$status = 'wait';
 			}
 			else {
+				# otherwise it's later in the day and not a prev_day feed so mark as received
 				$status = 'recv';
 
 				#				if ( $late eq 'N' ) {
@@ -554,6 +561,7 @@ sub row_info {
 				#				}
 			}
 		}
+		# all others are marked as late... maybe add elsif = 'Y'
 		else {
 			$status = 'late';
 		}
@@ -562,7 +570,9 @@ sub row_info {
 		$recvd_time = $filedate ? offset2time($hist_offset) : 'N/A';
 		$daemon_ts  = $hist_ts;
 		$update     = $filedate ? "$filedate-$filenum" : 'N/A';
-
+		
+		# if a records was found and late, then it was received and late
+		# use to apply border
 		$status =~ s/late/laterecv/;
 	}
 
@@ -731,7 +741,6 @@ sub cfg_checked {
 
 }
 
-#
 ## convert 24hr time to seconds offset from beginning of the day
 ## next it will have a day offset in seconds added to it where Sunday = 0
 #sub time2offset {

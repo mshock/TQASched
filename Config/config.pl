@@ -19,6 +19,7 @@ package TQASched::Config;
 # one subroutine to define them all
 # previously housed in TQASched.pm
 sub define_defaults {
+
 	# takes and acts upon passed reference to AppConfig object
 	my $cfg_ref = shift;
 
@@ -69,43 +70,52 @@ sub define_defaults {
 							ARGS    => '!',
 							ALIAS   => 'runonce',
 		},
+
 		# allow daemon to poll updates for legacy feeds
-		daemon_refresh_legacy => {
-							DEFAULT => 1,
-							ARGS    => '!',
-							ALIAS   => 'refresh_legacy',
+		daemon_refresh_legacy => { DEFAULT => 1,
+								   ARGS    => '!',
+								   ALIAS   => 'refresh_legacy',
 		},
+
 		# allow daemon to poll updates for dis feeds
-		daemon_refresh_dis => {
-							DEFAULT => 1,
-							ARGS    => '!',
-							ALIAS   => 'refresh_dis',
+		daemon_refresh_dis => { DEFAULT => 1,
+								ARGS    => '!',
+								ALIAS   => 'refresh_dis',
 		},
+
 		# enable the daemon to scan 1 GMT day ahead of current
-		daemon_lookahead => {
-							DEFAULT => 0,
-							ARGS    => '!',
-							ALIAS   => 'lookahead',
+		daemon_lookahead => { DEFAULT => 0,
+							  ARGS    => '!',
+							  ALIAS   => 'lookahead',
 		},
+
 		# wait for keypress after each update processed
 		# various commands available
 		# Q => quit
 		# TODO more commands - rerun, skip ahead, etc
-		daemon_pause_mode => {
-			DEFAULT => 0,
-			ARGS => '!',
-			ALIAS => 'pause_mode',
+		daemon_pause_mode => { DEFAULT => 0,
+							   ARGS    => '!',
+							   ALIAS   => 'pause_mode',
 		},
+
 		# scheduling configs
 		#
 		# path to master schedule spreadsheet
 		sched_file => { DEFAULT => 'TQA_Update_Schedule.xls',
-						ALIAS   => 'sched',
+						ALIAS   => 'sched_file',
+		},
+
+		sched_master_checklist => { DEFAULT => '..',
+									ALIAS   => 'master_checklist',
+		},
+
+		sched_checklist => { DEFAULT => 'DailyCheckList_test.xls',
+							 ALIAS   => 'checklist_file|checklist',
 		},
 
 		# path to the operator legacy update checklist
-		sched_checklist_path => { DEFAULT => '..',
-								  ALIAS   => 'checklist',
+		sched_checklist_path => { DEFAULT => '.',
+								  ALIAS   => 'checklist_path',
 		},
 
 		# initialize scheduling data
@@ -161,11 +171,9 @@ sub define_defaults {
 		report_refresh => { DEFAULT => '300',
 							ALIAS   => 'refresh_seconds',
 		},
-		report_view_debug => {
-			DEFAULT => 0,
-			ALIAS => 'report_debug',
+		report_view_debug => { DEFAULT => 0,
+							   ALIAS   => 'report_debug',
 		},
-
 
 		#-------------------------------------------------------------------
 		#  all CGI variables for the report follow:
@@ -175,53 +183,48 @@ sub define_defaults {
 						 ARGS    => ':i',
 						 ALIAS   => 'date',
 		},
+
 		# filter only legacy radio button
 		report_legacy_filter => {
 								DEFAULT => '',
 								ARGS    => ':s',
 								ALIAS => 'legacy|legacy_filter|filter_legacy',
 		},
+
 		# filter only dis radio button
 		report_dis_filter => { DEFAULT => '',
 							   ARGS    => ':s',
 							   ALIAS   => 'dis|dis_filter|filter_dis',
 		},
-		report_search => {
-			DEFAULT => '',
-			ARGS => ':s',
-			ALIAS => 'search',
+		report_search => { DEFAULT => '',
+						   ARGS    => ':s',
+						   ALIAS   => 'search',
 		},
-		report_search_upd => {
-			DEFAULT => '',
-			ARGS => ':s',
-			ALIAS => 'search_upd',
+		report_search_upd => { DEFAULT => '',
+							   ARGS    => ':s',
+							   ALIAS   => 'search_upd',
 		},
-		report_search_type => {
-			DEFAULT => '',
-			ARGS => ':s',
-			ALIAS => 'search_type',
+		report_search_type => { DEFAULT => '',
+								ARGS    => ':s',
+								ALIAS   => 'search_type',
 		},
-		report_float_status => {
-			DEFAULT => '',
-			ARGS => ':s',
-			ALIAS => 'float_status',
+		report_float_status => { DEFAULT => '',
+								 ARGS    => ':s',
+								 ALIAS   => 'float_status',
 		},
-		
-		report_enable_refresh => {
-			DEFAULT => '',
-			ARGS => ':s',
-			ALIAS => 'enable_refresh',
+
+		report_enable_refresh => { DEFAULT => '',
+								   ARGS    => ':s',
+								   ALIAS   => 'enable_refresh',
 		},
-		report_show_cols => {
-			DEFAULT => '',
-			ARGS => ':s',
-			ALIAS => 'show_cols',
+		report_show_cols => { DEFAULT => '',
+							  ARGS    => ':s',
+							  ALIAS   => 'show_cols',
 		},
-		
+
 		# optional window title, useful for side-by-side comparisons
-		report_title => {
-			DEFAULT => '',
-			ALIAS => 'title',
+		report_title => { DEFAULT => '',
+						  ALIAS   => 'title',
 		},
 
 # refresh rate for the report page - can't be less than 10, and 0 means never.
@@ -276,15 +279,14 @@ sub define_defaults {
 		default_sql_definitions => { DEFAULT => 'Config/TQASched.sql',
 									 ALIAS   => 'create_script|sql_file'
 		},
-		default_pod_docs => {
-			DEFAULT => 'README.pod',
-			ALIAS => 'pod|readme|docs'
+		default_pod_docs => { DEFAULT => 'README.pod',
+							  ALIAS   => 'pod|readme|docs'
 		},
+
 		# used for toggling debug tools or reporting
-		default_debug => {
-			DEFAULT => 0,
-			ARGS => ':i',
-			ALIAS => 'debug',
+		default_debug => { DEFAULT => 0,
+						   ARGS    => ':i',
+						   ALIAS   => 'debug',
 		},
 	);
 

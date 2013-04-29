@@ -425,6 +425,7 @@ sub compile_table {
 
 		$seq_num  ||= 'N/A';
 		$transnum ||= 'N/A';
+		$recvd_time ||= 'N/A';
 		my $update_row = sprintf( "
 		<tr $tr_title class='$border_class1 $border_class2 $row_class'>
 			<td>%s\t%s</td>

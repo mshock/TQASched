@@ -1051,7 +1051,7 @@ sub update_history {
 				GETUTCDATE(), 'K', $trans_num, 
 				'$feed_date', $seq_num) 
 		";
-			say $insert_skip_query;
+			#say $insert_skip_query;
 
 			$dbh_sched->do($insert_skip_query);
 		}
@@ -1191,7 +1191,7 @@ sub update_history {
 			update TQASched.dbo.Update_History
 			set filedate = $fd_q, filenum = $fn_q, transnum = $trans_num, seq_num = $seq_num
 			where hist_id = $hist_id
-		" );
+		" ) or say "update failed";
 
 	}
 
@@ -2174,7 +2174,7 @@ sub refresh_legacy {
 	# attempt to find & download the latest spreadsheet from OpsDocs server
 	# TODO rewrite find_sched to work with the new format
 	my $sched_xls
-		= '\\\\10.16.40.216/dataops/Operations_Update_Summary/Checklist_2013/DailyCheckList_20130422.xls';
+		= $cfg->checklist_path . '/' . $cfg->checklist;# '\\\\10.16.40.216/dataops/Operations_Update_Summary/Checklist_2013/DailyCheckList_20130422.xls';
 
 	# find_sched( $tyear, $tmonth, $tday );
 
@@ -2308,7 +2308,10 @@ sub refresh_legacy {
 			my $status;
 			my ( $trans_ts, $trans_offset, $trans_num, $seq_num )
 				= ( 0, -1, -1, 0 );
-			if (    $row_data->{filedate}
+			if (! defined $row_data->{filedate}) {
+				say "\tno UPD entry";
+			}
+			elsif (    $row_data->{filedate}
 				 && $row_data->{filenum}
 				 && $row_data->{filedate} !~ m/skip|hold/i
 				 && $row_data->{filenum} !~ m/skip|hold/i )
@@ -2463,7 +2466,7 @@ sub legacy_feed_date {
 		$delta = -7 + $excel_wd;
 	}
 	elsif ( $excel_wd == 0 ) {
-		$delta = 7 - $curr_wd;
+		$delta = -(7 - $curr_wd);
 	}
 	else {
 		$delta = $excel_wd - $curr_wd;

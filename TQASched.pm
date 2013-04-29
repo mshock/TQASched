@@ -2443,6 +2443,7 @@ sub pause_mode {
 }
 
 # calculate a particular DoW's feed date
+# TODO fix for refreshing historical
 sub legacy_feed_date {
 	my ( $excel_wd, $curr_date ) = @_;
 	my $curr_wd = get_wd($curr_date);

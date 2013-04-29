@@ -534,7 +534,7 @@ sub row_info {
 
 	my ( $status, $daemon_ts, $recvd_time, $update );
 	# history record exists, the feed date is not equal to one week ago and it isn't a skipped update
-	if ( defined $hist_id && !( date_math(-7) eq $feed_date ) && $late ne 'K' ) {
+	if ( defined $hist_id && $sched_offset >=  172800 && !( date_math(-7) eq $feed_date ) && $late ne 'K') {
 		# if marked as not late or empty
 		if ( $late eq 'N' || $late eq 'E' ) {
 			# if update isn't marked as a previous day
@@ -562,6 +562,11 @@ sub row_info {
 			}
 		}
 		# all others are marked as late... maybe add elsif = 'Y'
+#		elsif ($late eq 'Y' && $sched_offset <= 108000) {
+#			#warn 'hits';
+#			$status = 'recv';
+#		}
+		# weekend case, mark recvd instead of late
 		else {
 			$status = 'late';
 		}
@@ -582,6 +587,26 @@ sub row_info {
 		$recvd_time = 'N/A';
 		$update     = 'N/A';
 		$daemon_ts  = $hist_ts;
+	}
+
+	# handle monday special display case
+	elsif ($sched_offset <  172800 && defined $late) {
+		$daemon_ts  = $hist_ts;
+		$update     = $filedate ? "$filedate-$filenum" : 'N/A';
+		$recvd_time = $filedate ? offset2time($hist_offset) : 'N/A';
+		# TODO this is a display fix for weekend lateness
+		if ($late eq 'Y') {
+			$status = 'recv';		
+		}
+		elsif ($late eq 'E') {
+			$status = 'empty';
+			$recvd_time = 'N/A';
+			$update     = 'N/A';
+		}
+		# really early recv'd updates
+		else {
+			$status = 'recv';
+		}
 	}
 
 	# no history record, still waiting or it is late

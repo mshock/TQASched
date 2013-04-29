@@ -325,7 +325,6 @@ sub compile_table {
 	  on d.update_id = u.update_id 
 	  where 
 	  --weekday = $wd
-      --and u.update_id = us.update_id
       d.feed_id NOT LIKE 'FIEJV%'
       and d.feed_id NOT LIKE 'RDC%'
       and us.enabled = 1

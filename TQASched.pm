@@ -6,6 +6,7 @@ package TQASched;
 # TODO fix feed date handling in refresh and report
 
 use strict;
+use Net::SMTP;
 use feature qw(say switch);
 use Spreadsheet::ParseExcel;
 use Spreadsheet::ParseExcel::Utility qw(ExcelFmt);
@@ -27,7 +28,7 @@ use constant REGEX_TRUE => qr/^\s*(?:true|(?:t)|(?:y)|yes|(?:1))\s*$/i;
 
 # stuff to export to all subscripts
 our @EXPORT
-	= qw(load_conf legacy_feed_date time2offset now_offset refresh_handles kill_handles write_log usage redirect_stderr exec_time find_sched check_handles dsay @db_hrefs @CLI REGEX_TRUE $debug_mode);
+	= qw(load_conf legacy_feed_date time2offset now_offset refresh_handles kill_handles write_log usage redirect_stderr exec_time find_sched check_handles dsay @db_hrefs @CLI REGEX_TRUE $cfg);
 
 # anything used only in a single subscript goes here
 our @EXPORT_OK = qw(refresh_legacy refresh_dis);
@@ -38,7 +39,8 @@ our %EXPORT_TAGS = ( all => [ ( @EXPORT, @EXPORT_OK ) ],
 
 # for saving @ARGV values for later consumption
 our @CLI = @ARGV;
-our $debug_mode;
+
+#our $debug_mode;
 
 # shared database info loaded from configs
 # so that importers can create their own handles
@@ -72,7 +74,7 @@ say 'parsing CLI args and config file (om nom nom)...';
 
 # run all the configuration routines
 # returns a reference to a ref to an AppConfig
-my $cfg = ${ init() };
+our $cfg = ${ init() };
 
 # get how many CLI args there were/are
 my $num_args = scalar @CLI;
@@ -117,7 +119,8 @@ execute_tasks();
 # must be defined first for Perl one-pass syntax
 # TODO pull into another library, load up top
 sub dsay {
-	return unless defined $debug_mode && $debug_mode;
+	my $debug_mode = $cfg->debug;
+	return unless $debug_mode;
 
 	# avoid undef warnings and be more clear in output
 	my @dumped_args;
@@ -154,9 +157,7 @@ sub dsay {
 sub init {
 
 	# the ever-powerful and needlessly vigilant config variable - seriously
-	my $cfg = load_conf();
-	$debug_mode = $cfg->debug;
-
+	$cfg = load_conf();
 # no verbosity check! too bad i can't unsay what's been say'd, without more effort than it's worth
 # send all these annoying remarks to dev/null, or close as we can get in M$
 # TODO neither of these methods actually do anything, despite some trying
@@ -1051,6 +1052,7 @@ sub update_history {
 				GETUTCDATE(), 'K', $trans_num, 
 				'$feed_date', $seq_num) 
 		";
+
 			#say $insert_skip_query;
 
 			$dbh_sched->do($insert_skip_query);
@@ -1350,7 +1352,7 @@ sub load_conf {
 	$cfg->getopt( \@CLI );
 
 	# set the debug mode on load
-	$debug_mode = $cfg->debug;
+	#$debug_mode = $cfg->debug;
 
 	# check that usage is availabe and/or defined
 	$cfg->pod( find_pod_usage($cfg) );
@@ -1694,62 +1696,38 @@ sub check_db {
 sub find_sched {
 
 	# optional argument to refresh specific spreadsheet file
-	my ( $tyear, $tmonth, $tmday ) = @_;
-
-	my $time = time;
-	if ( defined $tyear ) {
-
-		$time = timegm( 0, 0, 0, $tmday, $tmonth, $tyear );
+	my ( $tyear, $tmonth, $tmday );
+	if ( ( $tyear, $tmonth, $tmday ) = @_ ) {
+		dsay
+			"spreadsheet target params = year: $tyear month: $tmonth day: $tmday";
 	}
+
+	# otherwise get file for current execution date
+	else {
+		dsay 'no target spreadsheet, using gmtime';
+		( $tmday, $tmonth, $tyear ) = ( gmtime(time) )[ 3 .. 5 ];
+	}
+
+	my $tdate = sprintf( '%u%02u%02u', $tyear, $tmonth, $tmday );
+
+	say "finding checklist for $tdate...";
+
+	my $tfile = "DailyCheckList_$tdate.xls";
 
 # old method, finds the youngest file and matches the date range (good for transition)
 #return find_youngest_sched();
+	my $checklist_path = $cfg->checklist_path;
 
-	say 'accessing checklist directory: ' . $cfg->checklist;
-	opendir( my $dir_fh, $cfg->checklist )
-		or warn "could open/find checklist dir" . $cfg->checklist . "$!\n";
+	say "connecting to network directory: $checklist_path...";
+	opendir( my $dir_fh, $checklist_path )
+		or warn "could open/find checklist dir: $checklist_path\n$!\n";
+	say 'connected.' if $dir_fh;
 	my @files = readdir($dir_fh);
 	closedir $dir_fh;
-	say 'success.';
-	say 'searching for latest checklist';
 
-	#timegm();
+	say "\tfound ", scalar(@files), ' files';
+	dsay @files;
 
-	# get current datetime for reference
-	my $now_date = ParseDate( 'epoch ' . $time );
-	$now_date = Date_ConvTZ( $now_date, undef, 'GMT' );
-
-	# find the beginning and end dates for the schedule filename's range
-	my $last_mon = Date_GetPrev( $now_date, 'Mon', 1 );
-	my $next_sun = DateCalc( $last_mon, 'in 6 days' );
-	my ( $start_string, $end_string )
-		= map { UnixDate( $_, '%e %b' ) } ( $last_mon, $next_sun );
-	my ( $start_month, $end_month )
-		= map {s/\s*\d*//gr} ( $start_string, $end_string );
-
-# if same month - create a variation on name with redundant first month removed
-	if (( $start_string =~ s/\s*\d*//gr ) eq ( $end_string =~ s/\s*\d*//gr ) )
-	{
-		$start_string =~ s/\D*//g;
-	}
-
-	map {s/\s*(\d+)/&ordinate($1)/e} ( $start_string, $end_string );
-	my $checklist_file
-		= $cfg->checklist . "/DailyChecklist_$start_string-$end_string.xls";
-	say "checklist should be $checklist_file";
-	unless ( -f $checklist_file ) {
-		write_log(
-			  { logfile => $cfg->log,
-				type    => 'WARN',
-				msg =>
-					"could not find checklist file $checklist_file, creating"
-			  }
-		);
-		create_checklist($checklist_file)
-			or warn "could not create checklist file $checklist_file\n";
-	}
-	say 'found checklist';
-	return $checklist_file;
 }
 
 # add ordinal component to numeric values (-st,-nd,-rd,-th)
@@ -1811,7 +1789,7 @@ sub refresh_dis {
 
 	#my $current_offset = now_offset();
 	for my $current_wd ($current_wd) {
-		say "DIS scanning weekday: $current_wd" if $debug_mode;
+		dsay "DIS scanning weekday: $current_wd";
 
 		# targetted schedule ID update run
 		my $filter_sched = "and us.weekday = $current_wd";
@@ -2173,8 +2151,9 @@ sub refresh_legacy {
 
 	# attempt to find & download the latest spreadsheet from OpsDocs server
 	# TODO rewrite find_sched to work with the new format
-	my $sched_xls
-		= $cfg->checklist_path . '/' . $cfg->checklist;# '\\\\10.16.40.216/dataops/Operations_Update_Summary/Checklist_2013/DailyCheckList_20130422.xls';
+	my $sched_xls = $cfg->checklist_path . '/'
+		. $cfg->checklist
+		; # '\\\\10.16.40.216/dataops/Operations_Update_Summary/Checklist_2013/DailyCheckList_20130422.xls';
 
 	# find_sched( $tyear, $tmonth, $tday );
 
@@ -2193,6 +2172,10 @@ sub refresh_legacy {
 	# iterate over each weekday (worksheets)
 	for my $worksheet ( $workbook->worksheets() ) {
 		my $weekday = $worksheet->get_name();
+		if ( $weekday =~ m/special|issue/i ) {
+			dsay "skipping unsupported legacy checklist page: $weekday";
+			next;
+		}
 		say "parsing $weekday...";
 		my $weekday_code = code_weekday($weekday);
 
@@ -2308,13 +2291,13 @@ sub refresh_legacy {
 			my $status;
 			my ( $trans_ts, $trans_offset, $trans_num, $seq_num )
 				= ( 0, -1, -1, 0 );
-			if (! defined $row_data->{filedate}) {
-				say "\tno UPD entry";
+			if ( !defined $row_data->{filedate} ) {
+				say "\t\tno UPD entry";
 			}
 			elsif (    $row_data->{filedate}
-				 && $row_data->{filenum}
-				 && $row_data->{filedate} !~ m/skip|hold/i
-				 && $row_data->{filenum} !~ m/skip|hold/i )
+					&& $row_data->{filenum}
+					&& $row_data->{filedate} !~ m/skip|hold/i
+					&& $row_data->{filenum} !~ m/skip|hold/i )
 			{
 				( $trans_ts, $trans_num, $seq_num )
 					= lookup_update( $row_data->{filedate},
@@ -2446,7 +2429,6 @@ sub pause_mode {
 }
 
 # calculate a particular DoW's feed date
-# TODO fix for refreshing historical
 sub legacy_feed_date {
 	my ( $excel_wd, $curr_date ) = @_;
 	my $curr_wd = get_wd($curr_date);
@@ -2466,7 +2448,7 @@ sub legacy_feed_date {
 		$delta = -7 + $excel_wd;
 	}
 	elsif ( $excel_wd == 0 ) {
-		$delta = -(7 - $curr_wd);
+		$delta = $curr_wd - 7;
 	}
 	else {
 		$delta = $excel_wd - $curr_wd;
@@ -2643,6 +2625,51 @@ sub write_log {
 		and return;
 	printf $log_fh "[%s]\t[%s]\t%s\n", timestamp(), $entry{type}, $entry{msg};
 	close $log_fh;
+}
+
+# send e-mail notification
+# returns truth upon success
+sub send_email {
+	my $opts_href = shift;
+
+	my $smtp = Net::SMTP->new( $opts_href->{smtp_server} )
+		or warn
+		"failed to connect to SMTP server: ${\$opts_href->{smtp_server}}\n"
+		and return;
+
+	$smtp->mail( $opts_href->{user} || $ENV{USER} )
+		or warn "server auth failed\n" and return;
+
+	my @add_list = @{ $opts_href->{send_to} };
+
+	foreach my $add (@add_list) {
+		$smtp->to($add) or warn "failed to add recip: $add\n";
+	}
+
+	$smtp->data();
+
+	foreach my $add (@add_list) {
+		$smtp->datasend("To: $add\n") or warn "failed to add recip: $add\n";
+	}
+
+	$smtp->datasend("From: ${\$opts_href->{sender}}\n")
+		or warn "could not use sender: ${\$opts_href->{sender}}\n" and return;
+	$smtp->datasend("Subject: ${\$opts_href->{msg_subject}}\n")
+		or warn "could not write subject: ${\$opts_href->{msg_subject}}\n"
+		and return;
+	$smtp->datasend("\n");
+	$smtp->datasend( ref( $opts_href->{msg_body} ) eq 'SCALAR'
+					 ? ${ \$opts_href->{msg_body} }
+					 : $opts_href->{msg_body}
+		)
+		or warn "could not write body: ${\$opts_href->{msg_body}}\n"
+		and return;
+
+	$smtp->dataend();
+
+	$smtp->quit;
+
+	return 1;
 }
 
 # STDERR redirects to file if being run from the module

@@ -109,7 +109,7 @@ sub define_defaults {
 									ALIAS   => 'master_checklist',
 		},
 
-		sched_checklist => { DEFAULT => 'DailyCheckList_test.xls',
+		sched_checklist => { DEFAULT => '',
 							 ALIAS   => 'checklist_file|checklist',
 		},
 
@@ -257,9 +257,10 @@ sub define_defaults {
 
 # path to config file (relative to the module)
 # (optional, I suppose if you wanted to list all database connection info in CLI args)
-		default_config_file => { DEFAULT => "Config/TQASched.ini",
-								 ARGS    => '=s',
-								 ALIAS => "cfg_file|conf_file|config_file|f",
+		default_config_file => {
+					DEFAULT => "Config/TQASched.ini",
+					ARGS    => '=s',
+					ALIAS   => "cfg_file|conf_file|config_file|f",
 		},
 
 # toggle dryrun mode = non-destructive test of module load and all db connections
@@ -272,6 +273,12 @@ sub define_defaults {
 		},
 		default_enable_warn => { DEFAULT => 1,
 								 ALIAS   => 'enable_warn',
+		},
+
+		# server to use for SendMail.pm
+		default_smtp_server => { DEFAULT => 'localhost',
+								 ARGS    => '=s',
+								 ALIAS   => 'smtp_server'
 		},
 		default_late_threshold => { DEFAULT => 0,
 									ALIAS   => 'late_threshold',

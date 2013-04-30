@@ -28,14 +28,30 @@ use constant REGEX_TRUE => qr/^\s*(?:true|(?:t)|(?:y)|yes|(?:1))\s*$/i;
 
 # stuff to export to all subscripts
 our @EXPORT
-	= qw(load_conf legacy_feed_date time2offset now_offset refresh_handles kill_handles write_log usage redirect_stderr exec_time find_sched check_handles dsay @db_hrefs @CLI REGEX_TRUE $cfg);
+	= qw(load_conf 
+	legacy_feed_date 
+	time2offset 
+	now_offset 
+	refresh_handles 
+	kill_handles 
+	write_log 
+	usage 
+	redirect_stderr 
+	exec_time 
+	find_sched 
+	check_handles
+	dsay 
+	@db_hrefs 
+	@CLI 
+	REGEX_TRUE 
+	$cfg);
 
 # anything used only in a single subscript goes here
 our @EXPORT_OK = qw(refresh_legacy refresh_dis);
 
 # add the :all tag to Exporter
 our %EXPORT_TAGS = ( all => [ ( @EXPORT, @EXPORT_OK ) ],
-					 min => [qw(write_log redirect_stderr load_conf)] );
+					 min => [qw(write_log redirect_stderr load_conf $cfg)] );
 
 # for saving @ARGV values for later consumption
 our @CLI = @ARGV;

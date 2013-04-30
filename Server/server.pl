@@ -10,7 +10,7 @@ use feature 'say';
 use lib '..';
 use TQASched qw(:min);
 
-my $cfg = load_conf('..');
+$cfg = load_conf('..');
 
 # redirect that STDERR if it's not going to the term
 redirect_stderr( $cfg->server_log ) if caller;

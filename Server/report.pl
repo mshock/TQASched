@@ -13,7 +13,7 @@ use Data::Dumper;
 use lib '..';
 use TQASched;
 
-my $cfg        = load_conf('..');
+$cfg        = load_conf('..');
 my $debug_mode = $cfg->report_debug;
 
 # redirect that STDERR if it's not going to the term

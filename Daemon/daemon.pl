@@ -9,9 +9,9 @@ use feature 'say';
 use lib '..';
 use TQASched qw(:all);
 
-my $cfg = load_conf('..');
+$cfg = load_conf('..');
 
-$debug_mode = $cfg->debug;
+my $debug_mode = $cfg->debug;
 my $pause_mode = $cfg->pause_mode;
 
 # redirect that STDERR if it's not going to the term

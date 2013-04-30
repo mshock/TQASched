@@ -158,6 +158,7 @@ sub init {
 
 	# the ever-powerful and needlessly vigilant config variable - seriously
 	$cfg = load_conf();
+
 # no verbosity check! too bad i can't unsay what's been say'd, without more effort than it's worth
 # send all these annoying remarks to dev/null, or close as we can get in M$
 # TODO neither of these methods actually do anything, despite some trying
@@ -2546,7 +2547,9 @@ sub sched_id2feed_date {
 
 			# stop rewinding for dis prev dates or legacy non-prev dates
 			# legacy prev dates require 1 more rewind
-			if ( defined $sched_id && !( $is_legacy && $prev_date ) ) {
+			if (    ( defined $sched_id && !( $is_legacy && $prev_date ) )
+				 || ( !$is_legacy && $prev_date && !defined $sched_id ) )
+			{
 				$found = 1;
 			}
 

@@ -376,7 +376,12 @@ sub compile_table {
 		and datediff(day, feed_date, '$dbdate') < 6
 		$filter
 		order by hist_id desc
-	";    #say $select_history if $sched_id == 271;
+	";    
+#	open LOG, '>>test.log';
+#	say LOG $select_history;
+#	close LOG;
+#	
+	#say $select_history if $sched_id == 271;
 		my $hist_query = $dbh_sched->prepare($select_history);
 		$hist_query->execute();
 

@@ -539,7 +539,7 @@ sub row_info {
 
 	my ( $status, $daemon_ts, $recvd_time, $update );
 	# history record exists, the feed date is not equal to one week ago and it isn't a skipped update
-	if ( defined $hist_id && $sched_offset >=  172800 && !( date_math(-7) eq $feed_date ) && $late ne 'K') {
+	if ( defined $hist_id && $sched_offset >= 172800 && !( report_date_math(-7) eq $feed_date ) && $late ne 'K') {
 		# if marked as not late or empty
 		if ( $late eq 'N' || $late eq 'E' ) {
 			# if update isn't marked as a previous day
@@ -548,10 +548,11 @@ sub row_info {
 			# and the offset is early day, probably processed previous GMT day
 			if (    !defined $prev_date
 				 && $late eq 'E'
-				 && date_math(-1) eq $feed_date
+				 && report_date_math(-1) eq $feed_date
 				 && $sched_offset % 86400 < 10800 )
 			{
 				# think this was to mark updates as wait if they had previous empty updates and were also early day
+				
 				$status = 'wait';
 			}
 			else {
@@ -731,19 +732,19 @@ sub offset2time {
 	# TODO change this to display actual date
 	my $date_display = '';
 	if ( $past_flag && !$sched_flag ) {
-		$date_display = date_math(-1) || 'prev day';
+		$date_display = report_date_math(-1) || 'prev day';
 
 	}
 	elsif ($sched_flag) {
-		$date_display = date_math(0);
+		$date_display = report_date_math(0);
 	}
 	elsif ($fut_flag) {
-		$date_display = date_math( -$fut_flag + 1 )
+		$date_display = report_date_math( -$fut_flag + 1 )
 			|| "$fut_flag future?";
 	}
 	else {
 		my $math = $offset ? 0 : -1;
-		$date_display = date_math($math);
+		$date_display = report_date_math($math);
 	}
 
 	# do a sanity check on hours/minutes
@@ -812,7 +813,7 @@ sub get_title {
 }
 
 # do date math in days on current view's date
-sub date_math {
+sub report_date_math {
 	my ($delta_days) = @_;
 	my ( $month, $day, $year ) = ( $headerdate =~ m!(\d+)/(\d+)/(\d+)! )
 		or ( return and warn "could not do date math!\n" );

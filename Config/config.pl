@@ -46,7 +46,7 @@ sub define_defaults {
 		# path to script which prints content
 		# this content is hosted through TCP/IP under HTTP
 		server_hosted_script => {
-						DEFAULT => 'test.pl',
+						DEFAULT => 'default.pl',
 						ALIAS => 'hosted_script|target_script|content_script',
 		},
 
@@ -100,21 +100,29 @@ sub define_defaults {
 
 		# scheduling configs
 		#
-		# path to master schedule spreadsheet
-		sched_file => { DEFAULT => 'TQA_Update_Schedule.xls',
-						ALIAS   => 'sched_file',
+		# path to master scheduling data spreadsheet
+		# TODO this probably no longer loads with new format
+		sched_master_schedule => {
+							 DEFAULT => 'TQA_Update_Schedule.xls',
+							 ARGS    => '=s',
+							 ALIAS   => 'master_sched',
 		},
 
-		sched_master_checklist => { DEFAULT => '..',
+		# path to blank master checklist
+		sched_master_checklist => { DEFAULT => '.',
+									ARGS    => '=s',
 									ALIAS   => 'master_checklist',
 		},
 
+		# optional filename specification for checklist file
 		sched_checklist => { DEFAULT => '',
-							 ALIAS   => 'checklist_file|checklist',
+							 ARGS    => '=s',
+							 ALIAS   => 'checklist',
 		},
 
-		# path to the operator legacy update checklist
+		# path to the operator legacy update checklist (network) directory
 		sched_checklist_path => { DEFAULT => '.',
+								  ARGS    => '=s',
 								  ALIAS   => 'checklist_path',
 		},
 
@@ -257,10 +265,9 @@ sub define_defaults {
 
 # path to config file (relative to the module)
 # (optional, I suppose if you wanted to list all database connection info in CLI args)
-		default_config_file => {
-					DEFAULT => "Config/TQASched.ini",
-					ARGS    => '=s',
-					ALIAS   => "cfg_file|conf_file|config_file|f",
+		default_config_file => { DEFAULT => "Config/TQASched.ini",
+								 ARGS    => '=s',
+								 ALIAS => "cfg_file|conf_file|config_file|f",
 		},
 
 # toggle dryrun mode = non-destructive test of module load and all db connections

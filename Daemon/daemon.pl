@@ -74,11 +74,11 @@ while ( ++$run_counter ) {
 
 sub refresh {
 
-	my ( $year, $month, $day ) = get_today();
+	#my ( $year, $month, $day ) = get_today();
 
-	#my ( $year, $month, $day ) = ( 2013, 4, 12 );
-	
-	say "refresh date: $year-$month-$day";
+	my ( $year, $month, $day ) = ( 2013, 5, 1);
+	my $refresh_date = sprintf('%u%02u%02u', $year, $month, $day);
+	say "refresh date: $refresh_date";
 
 	# TODO fork children to do each refresh (how to handle handles?)
 
@@ -97,7 +97,8 @@ sub refresh {
 	) if $cfg->refresh_legacy;
 
 	if ( $cfg->lookahead ) {
-		my ( $tyear, $tmonth, $tday ) = get_tomorrow();
+		my ( $tyear, $tmonth, $tday ) = parse_filedate(date_math(1, $refresh_date));
+		say "lookahead: $tyear$tmonth$tday";
 		refresh_dis( { year       => $tyear,
 					   month      => $tmonth,
 					   day        => $tday,

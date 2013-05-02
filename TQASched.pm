@@ -14,8 +14,9 @@ use DBI;
 use Carp;
 use Term::ReadKey;
 use File::Copy;
-use Date::Manip
-	qw(ParseDate DateCalc Delta_Format UnixDate Date_DayOfWeek Date_GetPrev Date_ConvTZ Date_PrevWorkDay Date_NextWorkDay);
+
+#use Date::Manip
+#	qw(ParseDate DateCalc Delta_Format UnixDate Date_DayOfWeek Date_GetPrev Date_ConvTZ Date_PrevWorkDay Date_NextWorkDay);
 use Time::Local;
 use Pod::Usage qw(pod2usage);
 use AppConfig qw(:argcount);
@@ -27,31 +28,34 @@ use constant REGEX_TRUE => qr/^\s*(?:true|(?:t)|(?:y)|yes|(?:1))\s*$/i;
 # -s -d to start in server + daemon mode (normal execution)
 
 # stuff to export to all subscripts
-our @EXPORT
-	= qw(load_conf 
-	legacy_feed_date 
-	time2offset 
-	now_offset 
-	refresh_handles 
-	kill_handles 
-	write_log 
-	usage 
-	redirect_stderr 
-	exec_time 
-	find_sched 
+our @EXPORT = qw(
+	dsay
+	load_conf
+	legacy_feed_date
+	time2offset
+	now_offset
+	refresh_handles
+	kill_handles
+	write_log
+	usage
+	redirect_stderr
+	exec_time
+	find_sched
 	check_handles
-	dsay 
-	@db_hrefs 
-	@CLI 
-	REGEX_TRUE 
+	date_math
+	parse_filedate
+	@db_hrefs
+	@CLI
+	REGEX_TRUE
 	$cfg);
 
 # anything used only in a single subscript goes here
 our @EXPORT_OK = qw(refresh_legacy refresh_dis);
 
 # add the :all tag to Exporter
-our %EXPORT_TAGS = ( all => [ ( @EXPORT, @EXPORT_OK ) ],
-					 min => [qw(write_log redirect_stderr load_conf $cfg)] );
+our %EXPORT_TAGS = (
+	all => [ ( @EXPORT, @EXPORT_OK ) ],
+	min => [qw(write_log redirect_stderr load_conf $cfg)] );
 
 # for saving @ARGV values for later consumption
 our @CLI = @ARGV;
@@ -135,8 +139,7 @@ execute_tasks();
 # must be defined first for Perl one-pass syntax
 # TODO pull into another library, load up top
 sub dsay {
-	my $debug_mode = $cfg->debug;
-	return unless $debug_mode;
+	return unless my $debug_mode = $cfg->debug;
 
 	# avoid undef warnings and be more clear in output
 	my @dumped_args;
@@ -764,7 +767,27 @@ sub get_wd {
 	my $time = timegm( 0, 0, 0, $day, $month - 1, $year - 1900 );
 	my ( $sec, $min, $hour, $mday, $mon, $y, $wday, $yday, $isdst )
 		= gmtime($time);
+	dsay $wday;
 	return $wday;
+}
+
+# gets the sched_id of the next day given sched_id of current
+# TODO make this work for odd schedules
+sub next_sched_id {
+	my $sched_id = shift;
+	my $offset;
+	my $next_sched_query = "
+		select b.sched_id, b.sched_epoch
+		from [TQASched].dbo.[Update_Schedule] a
+		join
+		[TQASched].dbo.[Update_Schedule] b
+		on a.update_id = b.update_id
+		and (b.weekday = a.weekday + 1) 
+		and a.sched_id = $sched_id		
+	";
+	( $sched_id, $offset ) = $dbh_sched->selectrow_array($next_sched_query);
+	dsay( $sched_id, $offset );
+	return ( $sched_id, $offset );
 }
 
 # retrieve schedule IDs (aref of aref) from database for an update ID
@@ -869,7 +892,13 @@ sub offset_before {
 # compares two GMT offsets (perceived trans time vs scheduled time)
 # TODO intelligently handle week boundary
 sub comp_offsets {
-	my ( $trans_offset, $sched_offset, $is_weekend ) = @_;
+	my ( $trans_offset, $sched_offset, $weekend_prev_day ) = @_;
+
+	#	# properly handle monday's early feeds
+	#	if ($weekend_prev_day) {
+	#
+	#	}
+	#
 
 	# get seconds difference
 	my $offset_diff = $trans_offset - $sched_offset;
@@ -896,12 +925,13 @@ sub comp_offsets {
 		# no need for this now that filtered by feed_date from sched_id
 		#&& ( $offset_diff > -86400 || $is_weekend ) )
 	{
-		if ($is_weekend) {
-			dsay 'weekend case, early?';
-		}
-		else {
-			dsay 'non-weekend, early?';
-		}
+
+		#		if ($is_weekend) {
+		#			dsay 'weekend case, early?';
+		#		}
+		#		else {
+		#			dsay 'non-weekend, early?';
+		#		}
 		return 0;
 	}
 
@@ -927,6 +957,8 @@ sub sender2dbh {
 	my ($sender) = @_;
 	my $server   = 0;
 	my $special  = 0;
+
+	dsay $sender;
 
 	# make sure this is from DIS1, as all DIS content should be
 	if ( $sender =~ m/NTCP-DIS1-NTCP-(.*)/ ) {
@@ -1039,6 +1071,38 @@ sub update_history {
 		  $fd_q,      $fn_q,     $trans_num,    $is_legacy,
 		  $feed_date, $seq_num
 	);
+	my $weekday = get_wd($feed_date);
+
+	# first, get the last UPD (or just seq_num) this update_id had
+	# if current is identical, skip storing again
+	if ( defined $seq_num ) {
+		my $select_last_upd = "
+			select top 1 [timestamp]
+			from [TQASched].dbo.update_history
+			where
+			update_id = $update_id
+			and seq_num = $seq_num
+			and datediff(dd, [timestamp], '$feed_date') < 7
+			order by [timestamp] desc
+		";
+		dsay $select_last_upd;
+		my ($ts_prev) = $dbh_sched->selectrow_array($select_last_upd);
+		if ( defined $ts_prev ) {
+			say "\tnot storing dup seq_num ($seq_num)";
+			return;
+
+			# check that filedate and filenum haven't been updated
+			# this is where update occurs for new 'recvd but processing' flag
+
+			#			if (defined $fd_prev && defined $fn_prev) {
+			#				say "$fd_prev $fn_prev";
+			#			}
+			#			elsif () {
+			#				say "UPD not defined";
+			#			}
+		}
+
+	}
 
 	# K = skipped
 	if ( $is_legacy && $late_q eq 'K' ) {
@@ -1231,8 +1295,10 @@ sub update_history {
 			#return;
 		}
 		elsif ($is_legacy) {
-			say "\t$update_id legacy recvd, but parsing error";
-
+			say "\t$update_id legacy recvd";
+			if ($trans_offset == -1) {
+				say "\tbut parsing error";
+			}
 			#return;
 		}
 
@@ -1254,7 +1320,7 @@ sub update_history {
 			values
 			($update_id, $sched_id, $trans_offset, $fd_q, $fn_q, GetUTCDate(), '$late_q', $trans_num, '$feed_date', $seq_num )
 		";
-
+		dsay $insert_hist;
 		$dbh_sched->do($insert_hist) or warn "could not insert!!!\n";
 	}
 
@@ -1293,13 +1359,14 @@ sub datetime2offset {
 	my ($datetime) = @_;
 
 	# bounce empty datetimes
-	( warn 'no datetime value passed to offset conversion routine'
+	( dsay 'no datetime value passed to offset conversion routine'
 	   and return )
 		unless $datetime;
 	my ( $year, $month, $date, $hour, $minute, $second )
 		= ( $datetime =~ m/(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)/ );
-	my $dow = Date_DayOfWeek( $month, $date, $year );
-	$dow = 0 if $dow == 7;
+
+	#my $dow = Date_DayOfWeek( $month, $date, $year );
+	my $dow = get_wd($datetime);
 	return $dow * 86400 + $hour * 3600 + $minute * 60 + $second;
 }
 
@@ -1319,11 +1386,22 @@ sub time2offset {
 sub get_update_id {
 	my $name         = shift;
 	my $select_query = "
-		select update_id from [TQASched].dbo.[Updates] 
+		select top 1 update_id from [TQASched].dbo.[Updates] 
 		where name = '$name'
 	";
 	my $id = ( ( $dbh_sched->selectall_arrayref($select_query) )->[0] )->[0];
 	return $id;
+}
+
+# take update_id return feed_id, if any
+sub get_feed_id {
+	my ($update_id) = @_;
+	return unless $update_id;
+	my $select_query = "
+		select top 1 feed_id from [TQASched].dbo.[Update_DIS]
+		where update_id = $update_id
+	";
+	return ($dbh_sched->selectrow_array($select_query))[0];
 }
 
 # current timestamp SQL DateTime format for GMT or default to machine time (local)
@@ -1409,7 +1487,7 @@ sub find_pod_usage {
 sub parse_filedate {
 	my ($filedate) = @_;
 	if ( my ( $year, $month, $mday )
-		 = ( $filedate =~ m/(\d{4})(\d{2})(\d{2})/ ) )
+		 = ( $filedate =~ m/(\d{4})\D*(\d{2})\D*(\d{2})/ ) )
 	{
 		return ( $year, $month, $mday );
 	}
@@ -1708,8 +1786,8 @@ sub check_db {
 	return ( ( $dbh_sched->selectall_arrayref($check_query) )->[0] )->[0];
 }
 
-# get latest schedule checklist
-# TODO fix find_sched for new format
+# get latest schedule checklist full path
+# optionally pass in target date components
 sub find_sched {
 
 	# optional argument to refresh specific spreadsheet file
@@ -1723,28 +1801,105 @@ sub find_sched {
 	else {
 		dsay 'no target spreadsheet, using gmtime';
 		( $tmday, $tmonth, $tyear ) = ( gmtime(time) )[ 3 .. 5 ];
+		$tmonth++;
+		$tyear += 1900;
 	}
 
 	my $tdate = sprintf( '%u%02u%02u', $tyear, $tmonth, $tmday );
 
 	say "finding checklist for $tdate...";
 
-	my $tfile = "DailyCheckList_$tdate.xls";
-
-# old method, finds the youngest file and matches the date range (good for transition)
-#return find_youngest_sched();
 	my $checklist_path = $cfg->checklist_path;
 
-	say "connecting to network directory: $checklist_path...";
+	print "connecting to network directory: $checklist_path...";
 	opendir( my $dir_fh, $checklist_path )
-		or warn "could open/find checklist dir: $checklist_path\n$!\n";
-	say 'connected.' if $dir_fh;
-	my @files = readdir($dir_fh);
+		or say "could open/find checklist dir: $checklist_path\n$!\n" and return;
+	say ' connected' if $dir_fh;
+	my @files = grep m/^dailychecklist_\d+\.xls$/i, readdir($dir_fh);
 	closedir $dir_fh;
+	dsay "\tfound ", scalar(@files), 'checklist files:';
+	my @checklist_files = reverse sort @files;
+	#dsay @checklist_files;
 
-	say "\tfound ", scalar(@files), ' files';
-	dsay @files;
+	my $tfile = '';
+	# use config args checklist if specified
+	if ( $cfg->checklist ) {
+		$tfile = $cfg->checklist;
+	}
+	# otherwise match filename from target date
+	else {
+		my $last_monday = last_monday( $tyear, $tmonth, $tmday );
+		$tfile = "DailyCheckList_${last_monday}.xls"		
+	}
+	my $checklist_target = "$checklist_path/$tfile";
+	
+	# checklist has been found
+	if (-f $checklist_target) {
+		dsay "checklist found: $checklist_target", 'existing files:', @checklist_files;
+		return $checklist_target;
+	}
+	# checklist not found, create from master
+	# TODO timing on this? will it be generated in time?
+	else {
+		dsay "checklist not found for $tdate:", $checklist_target, 'existing files:', @checklist_files;
+		say "$tfile not found, generating new checklist...";	
+		if (create_checklist($checklist_target)) {
+			return $checklist_target;
+		}
+		else {
+			say 'no checklist, failed to generate';
+			dsay "could not create checklist $checklist_target";
+			return;
+		}
+	}
+	
+	
+}
 
+# takes date parts and returns last monday
+sub last_monday {
+	( dsay 'nothing passed to last_monday' and return ) unless @_;
+	
+	my ( $year, $month, $mday, $wday )
+		= ( $_[0] - 1900, $_[1] - 1, @_[ 2 .. 3 ] );
+	dsay "$year $month $mday";
+	my $time = timegm( (0) x 3, $mday, $month, $year )
+		or ( dsay "failed to timegm @_" and return );
+
+	# if weekday is already known it is optional and will speed it up
+	$wday ||= -1;
+
+	dsay "calculating date of last monday for: @_";
+	( $mday, $month, $year, $wday ) = ( gmtime($time) )[ 3 .. 6 ];
+	my $monday_date = '';
+
+	# already mon (1)
+	if ( $wday == 1 ) {
+		dsay 'last_monday - date is monday';
+	}
+	else {
+
+		# tues - sat (2 - 6)
+		if ( $wday > 1 ) {
+			$time -= 86400 * ( $wday - 1 );
+		}
+
+		# sun (0)
+		else {
+
+			# decrement 6 days
+			$time -= 518400;
+		}
+		( $mday, $month, $year, $wday ) = ( gmtime($time) )[ 3 .. 6 ];
+	}
+
+	$monday_date = sprintf( '%u%02u%02u', $year + 1900, $month + 1, $mday );
+	( say "last_monday sanity check failed - $wday for $monday_date"
+	   and return )
+		if $wday != 1;
+	
+	dsay "\twday: $wday on $monday_date is/was/will be last monday";
+	return $monday_date;
 }
 
 # add ordinal component to numeric values (-st,-nd,-rd,-th)
@@ -1761,11 +1916,33 @@ sub ordinate {
 	return $number . $ord;
 }
 
+# returns whether a day code is a weekend (6,0)
+sub is_weekend {
+	my ($code) = @_;
+	if ( defined $code && $code == 6 || $code == 0 ) {
+		return 1;
+	}
+	return;
+}
+
+# create renamed copy of master checklist
 sub create_checklist {
-	my ($checklist_path) = @_;
+	my ($new_checklist_path) = @_;
 	my $mastersheet
-		= $cfg->checklist . '/Master_Sheets/DailyCheckList_MasterSheet.xls';
-	return copy( $mastersheet, $checklist_path );
+		= $cfg->master_checklist;
+	if (! -f $mastersheet) {
+		say "could not find master checklist: $mastersheet";
+		return;
+	}
+	unless (copy( $mastersheet, $new_checklist_path )) {
+		say "failed to create new spreadsheet: $!";
+		dsay 'create_checklist copy failed: ',$mastersheet, $new_checklist_path;
+	}
+	else {
+		say "created new checklist: $new_checklist_path";
+		return 1;
+	}
+	
 }
 
 # utility for changing the scheduled time for an update
@@ -1801,16 +1978,24 @@ sub refresh_dis {
 	check_handles();
 
 	# argument = weekday to scan
-	my $current_wd
-		= $tyear ? Date_DayOfWeek( $tmonth, $tday, $tyear ) : now_wd();
+	my $current_wd = $tyear ? get_wd($target_date_string) : now_wd();
 
 	#my $current_offset = now_offset();
 	for my $current_wd ($current_wd) {
 		dsay "DIS scanning weekday: $current_wd";
 
 		# targetted schedule ID update run
-		my $filter_sched = "and us.weekday = $current_wd";
+		my $filter_sched
+			= is_weekend($current_wd)
+			? "and ((weekday = 0 or weekday = 6) or (prev_date = 1 and weekday = 1))"
+			: "and us.weekday = $current_wd";
+
 		if ( defined $tsched_id ) {
+
+			# TODO fix for weekend target sched_id
+			if ( $current_wd == 0 ) {
+
+			}
 			$filter_sched = "and us.sched_id = $tsched_id";
 		}
 		elsif ( defined $tupdate_id ) {
@@ -1840,7 +2025,6 @@ sub refresh_dis {
 		# iterate over each of them and determine if they are completed
 		for my $update_aref ( @{$updates_aref} ) {
 
-			$first_run = pause_mode($first_run) if $pause_mode;
 			my $trans_offset;
 			my ( $feed_year, $feed_mon, $feed_day );
 
@@ -1853,19 +2037,20 @@ sub refresh_dis {
 
 			# handle annoying FIEJV feeds not being enumerated
 			# TODO fix special case for FIEJV
-			if ( $feed_id =~ m/fiejv/i ) {
 
-	#say "\tskipping an FIEJV";
+			if ( $feed_id =~ m/fiejv|rdc/i ) {
+				dsay "$name: skipping";
+
 	# get earliest FIEJV feed that hasn't been received, assume it is this one
 	# skip for debugging purposes now
 				next;
 			}
-
-			say $name;
+			say "$name - $update_id - $sched_id";
+			$first_run = pause_mode($first_run) if $pause_mode;
 
 			# get build number (optional) from feed name
 			my ( $stripped_name, $build_num ) = ( $name =~ m/(.*)#(\d+)/ );
-
+			$build_num = 0 if $stripped_name =~ m/first call/i;
 #
 #		# this could be associated with a different weekday, verify feed date
 #		my $feed_date_rewind = '';
@@ -1873,20 +2058,41 @@ sub refresh_dis {
 #			say "\tusing yesterday's feed date";
 #			$feed_date_rewind = "and FeedDate = DateAdd(dd, $feed_date_rewind, '$target_date_string')";
 #		}
+			#my $yfeed_date = date_math(-1, $target_date_string);
+			#my $feed_date_filter = "and feeddate = '$yfeed_date'";
 			my $feed_date_filter = '';
-			if ( $current_wd != 1 && defined $build_num ) {
+			#if ( $current_wd != 1 && defined $build_num ) {
+			#if ( defined $build_num ) {
+
+				# weekend case, get next sched_id and its corresponding offset
+#				if (    $current_wd == 0
+#					 && defined $prev_date
+#					 && $prev_date == 1 )
+#				{
+					
+				
+				if (defined $prev_date && $prev_date == 1 && !$build_num) {
+					say "\tdoing some schedule_id/feed_date magic";
+					my	( $nsched_id, $noffset ) = next_sched_id($sched_id);
+					if (defined $nsched_id) {
+						$sched_id = $nsched_id;
+						$offset = $noffset;
+					}
+				}
 				my $sched_feed_date
-					= sched_id2feed_date( $sched_id, $target_date_string );
+					= sched_id2feed_date( $sched_id, $target_date_string, (($build_num && $prev_date) || !$build_num ? 0 : -1) );
 				dsay $sched_feed_date;
 				$feed_date_filter = "and feeddate = '$sched_feed_date'";
-			}
+#				}
+				
+			#}
 
 # double duty query
 # gets all needed info for non-enumerated feeds
 # gets DIS server (sender) for enumerated feeds to hit for build-specific details
 # TODO cannot simply take newest, need to check feed date
 			my $transactions = "
-			select top 1 Status, ProcessTime, FileDate, FileNum, Sender, TransactionNumber, BuildTime, FeedDate, SeqNum 
+			select top 1 Status, ProcessTime, FileDate, FileNum, Sender, TransactionNumber, BuildTime, FeedDate, SeqNum, filesize 
 			from [TQALic].dbo.[PackageQueue] 
 			with (NOLOCK)
 			where TaskReference LIKE '%$feed_id%'
@@ -1897,9 +2103,9 @@ sub refresh_dis {
 
  #say $transactions;
  #--	and feeddate = DateAdd(dd, $feed_date_rewind, '${tyear}${tmonth}${tday}')
-			my ( $status,     $exec_end,  $fd,
-				 $fn,         $sender,    $trans_num,
-				 $build_time, $feed_date, $seq_num
+			my ( $status,  $exec_end,  $fd,         $fn,
+				 $sender,  $trans_num, $build_time, $feed_date,
+				 $seq_num, $filesize
 			) = $dbh_prod1->selectrow_array($transactions);
 
 			dsay( $status,     $exec_end,  $fd,
@@ -1945,11 +2151,11 @@ sub refresh_dis {
 				#
 				#				$backdate_updates
 				#					= $dbh_sched->selectall_arrayref($backdate_query);
-				dsay $sender;
 				my $dbh_dis = sender2dbh($sender);
 
+				my $sched_feed_date = $target_date_string;
 				if ( $current_wd != 1 ) {
-					my $sched_feed_date = sched_id2feed_date( $sched_id,
+					$sched_feed_date = sched_id2feed_date( $sched_id,
 														$target_date_string );
 					$feed_date_filter = "and FeedDate = '$sched_feed_date'";
 				}
@@ -1968,17 +2174,35 @@ sub refresh_dis {
 			";
 				dsay $dis_trans;
 				my ( $dis_feed_date, $dis_feed_status );
-				( $trans_num, $dis_feed_date, $dis_feed_status )
-					= $dbh_dis->selectrow_array($dis_trans);
-				if ( !$trans_num ) {
-					say "\tno trans num found for DIS trans num, skipping\n";
-					next;
+				until ( ( $trans_num, $dis_feed_date, $dis_feed_status )
+						= $dbh_dis->selectrow_array($dis_trans) )
+				{
+					say
+						"\tno trans num found for DIS trans num, rewinding again";
+					$sched_feed_date =
+						sched_id2feed_date( $sched_id,
+										  date_math( -1, $sched_feed_date ) );
+					$feed_date_filter = "and FeedDate = '$sched_feed_date'";
+					$dis_trans        = "
+					select top 1 DISTransactionNumber, FeedDate, Status, ExecutionDateTime
+					from DataIngestionInfrastructure.dbo.MakeUpdateInfo
+					with (NOLOCK)
+					where BuildNumber = $build_num
+					and DataFeedId = '$feed_id'
+					$feed_date_filter
+					order by ExecutionDateTime desc";
+
+					#					( $trans_num, $dis_feed_date, $dis_feed_status )
+					#					= $dbh_dis->selectrow_array($dis_trans) or
 				}
+				dsay $sched_feed_date;
 
 				# select this transaction from TQALic
 				# to get AUH process time, along with filenum and filedate
 				my $transactions = "
-				select top 1 Status, BuildTime, FileDate, FileNum, Sender, TransactionNumber, DateDiff(dd, [BuildTime], GETUTCDATE()), FeedDate, seqnum 
+				select top 1 Status, ProcessTime, FileDate, FileNum, Sender, 
+					TransactionNumber, DateDiff(dd, [BuildTime], GETUTCDATE()), FeedDate, seqnum,
+					filesize 
 				from [TQALic].dbo.[PackageQueue] 
 				with (NOLOCK)
 				where TaskReference LIKE '%$feed_id%'
@@ -1988,9 +2212,9 @@ sub refresh_dis {
 				order by BuildTime desc
 			";
 				dsay $transactions;
-				(  $status,     $exec_end,  $fd,
-				   $fn,         $sender,    $trans_num,
-				   $build_time, $feed_date, $seq_num
+				(  $status,  $exec_end,  $fd,         $fn,
+				   $sender,  $trans_num, $build_time, $feed_date,
+				   $seq_num, $filesize
 				) = $dbh_prod1->selectrow_array($transactions);
 
 #					or warn
@@ -2004,20 +2228,22 @@ sub refresh_dis {
 				dsay( $dfeed_year, $dfeed_mon, $dfeed_day );
 
 				# this is an empty update, should be marked as such
-				if ( !$fd && $status ) {
+				if ( !$filesize && $status ) {
 
 		   # TODO two sched_id inserts are happening here, need to investigate
 					say "\tthis was an empty update";
-					update_history( { update_id    => $update_id,
-									  sched_id     => $sched_id,
-									  trans_offset => -1,
-									  late         => 'E',
-									  filedate     => 'NULL',
-									  filenum      => 'NULL',
-									  transnum     => $trans_num,
-									  feed_date    => $feed_date,
-									  seq_num      => $seq_num,
-									}
+					update_history(
+								  { update_id => $update_id,
+									sched_id  => $sched_id,
+									trans_offset =>
+										( datetime2offset($exec_end) || -1 ),
+									late      => 'E',
+									filedate  => 'NULL',
+									filenum   => 'NULL',
+									transnum  => $trans_num,
+									feed_date => $feed_date,
+									seq_num   => $seq_num,
+								  }
 					);
 					next;
 				}
@@ -2025,7 +2251,7 @@ sub refresh_dis {
 		  # not done processing, mark as wait
 		  # TODO status is binary, how is this represented in Perl out of DBI?
 				elsif ( !$status ) {
-					say "\tno status, mark as wait";
+					say "\tno status, AUH not finished";
 					$trans_offset = -1;
 				}
 
@@ -2070,7 +2296,7 @@ sub refresh_dis {
 				}
 				else {
 					$cmp_result = comp_offsets( $trans_offset, $offset,
-												( $current_wd == 1 ) );
+										 ( $current_wd == 0 && $prev_date ) );
 					dsay $cmp_result;
 				}
 
@@ -2167,12 +2393,8 @@ sub refresh_legacy {
 	check_handles();
 
 	# attempt to find & download the latest spreadsheet from OpsDocs server
-	# TODO rewrite find_sched to work with the new format
-	my $sched_xls = $cfg->checklist_path . '/'
-		. $cfg->checklist
-		; # '\\\\10.16.40.216/dataops/Operations_Update_Summary/Checklist_2013/DailyCheckList_20130422.xls';
-
-	# find_sched( $tyear, $tmonth, $tday );
+	my $sched_xls = $tyear ? find_sched($tyear, $tmonth, $tday) : find_sched(); 
+		# '\\\\10.16.40.216/dataops/Operations_Update_Summary/Checklist_2013/DailyCheckList_20130422.xls';
 
 	my $feed_date = sprintf( '%u%02u%02u', $tyear, $tmonth, $tday );
 
@@ -2182,7 +2404,7 @@ sub refresh_legacy {
 		or say "unable to parse spreadsheet: $sched_xls\n",
 		$xlsparser->error()
 		and return;
-	say 'done loading checklist into memory';
+	say "done parsing checklist: $sched_xls";
 
 	my $first_run = 1;
 
@@ -2252,11 +2474,18 @@ sub refresh_legacy {
 			my $name = $row_data->{update};
 
 			my $update_id = get_update_id($name);
+			
 			unless ($update_id) {
 				dsay "\tcould not find update ID for $name" unless $tsched_id;
 				next;
 			}
-
+			
+			my $feed_id = get_feed_id($update_id);
+			
+			unless ($feed_id) {
+				dsay "\tcould not find feed ID for $name" unless $tsched_id;
+			}
+			
 			# TODO implement better way of handling legacy CT TZ border feeds
 			# correct weekday for border cases
 			my $border_flag = 0;
@@ -2286,7 +2515,6 @@ sub refresh_legacy {
 				= $dbh_sched->selectrow_array($sched_query);
 
 			unless ( defined $sched_offset ) {
-
 # TODO handle this error by finding the correct schedule entry to update rather than failing
 				dsay "\toffset not defined $update_id";
 				next;
@@ -2308,7 +2536,7 @@ sub refresh_legacy {
 			my $status;
 			my ( $trans_ts, $trans_offset, $trans_num, $seq_num )
 				= ( 0, -1, -1, 0 );
-			if ( !defined $row_data->{filedate} ) {
+			if ( !defined $row_data->{filedate} || !defined $row_data->{filenum}) {
 				say "\t\tno UPD entry";
 			}
 			elsif (    $row_data->{filedate}
@@ -2316,11 +2544,14 @@ sub refresh_legacy {
 					&& $row_data->{filedate} !~ m/skip|hold/i
 					&& $row_data->{filenum} !~ m/skip|hold/i )
 			{
+				#dsay "$row_data->{filedate} $row_data->{filenum} $feed_id";
 				( $trans_ts, $trans_num, $seq_num )
 					= lookup_update( $row_data->{filedate},
-									 $row_data->{filenum} );
+									 $row_data->{filenum}, 
+									 $feed_id );
+				#dsay "ts: $trans_ts tn: $trans_num sn: $seq_num";
 				$trans_offset = $trans_ts ? datetime2offset($trans_ts) : -1;
-
+				#dsay "to: $trans_offset";
 			}
 
 			# this was marked for skip or on hold
@@ -2501,14 +2732,14 @@ sub date_math {
 
 # look up an update's completion timestamp from AUH db
 sub lookup_update {
-	my ( $filedate, $filenum ) = @_;
-
+	my ( $filedate, $filenum, $feed_id ) = @_;
+	$feed_id = $feed_id ? "and taskreference like '%$feed_id%'" : ''; 
 	my $select_fdfn_query = "
 		select ProcessTime, TransactionNumber, seqnum
 		from [TQALic].[dbo].[PackageQueue]
 		where FileDate = '$filedate'
 		and FileNum= '$filenum'
-		--and Status1 = 100 and Status2 = 100
+		$feed_id
 	";
 	my ( $fdfn_ts, $trans_num, $seq_num )
 		= ( $dbh_prod1->selectrow_array($select_fdfn_query) );
@@ -2522,8 +2753,8 @@ sub lookup_update {
 # needs to go back to either prod1 or dis box to rewind to the associated feed date
 # TODO sched_id does not map to feed_date properly - not sure if this method is save-able
 sub sched_id2feed_date {
-	my ( $sched_id, $feed_date_current ) = @_;
-
+	my ( $sched_id, $feed_date_current, $date_shift ) = @_;
+	$date_shift ||= 0;
 	# lookup weekday from schedule
 	my $date_lookup_query = "
 		select a.update_id, weekday, prev_date, is_legacy
@@ -2534,17 +2765,23 @@ sub sched_id2feed_date {
 		where 
 		sched_id = $sched_id		
 	";
-	dsay $date_lookup_query;
+	dsay $date_lookup_query, $feed_date_current;
 	my ( $update_id, $wd, $prev_date, $is_legacy )
 		= $dbh_sched->selectrow_array($date_lookup_query)
 		or dsay "sched_id $sched_id lookup failed" and return -1;
 
+	my ( $found, $rewinds );
+
+	# handle weekend case DIS, needs to fast forward to Monday's date
+	if ( $wd == 0 && defined $prev_date && $prev_date == 1 && !$is_legacy ) {
+		$found = 1;
+		return date_math( 1, $feed_date_current );
+	}
+
 	# prev day, need to go back to friday (usually)
 	# not for legacy
-	if ( ( defined $prev_date && $prev_date == 1 ) || $is_legacy ) {
+	elsif ( ( defined $prev_date && $prev_date == 1 ) || $is_legacy ) {
 		dsay "rewinding";
-
-		my ( $found, $rewinds );
 		until ( defined $found && $found ) {
 
 			# rollback to saturday properly
@@ -2563,8 +2800,9 @@ sub sched_id2feed_date {
 
 			# stop rewinding for dis prev dates or legacy non-prev dates
 			# legacy prev dates require 1 more rewind
-			if (    ( defined $sched_id && !( $is_legacy && $prev_date ) )
-				 || ( !$is_legacy && $prev_date && !defined $sched_id ) )
+			if ( ( defined $sched_id && !( $is_legacy && $prev_date ) ) )
+
+				# || ( !$is_legacy && $prev_date && !defined $sched_id ) )
 			{
 				$found = 1;
 			}
@@ -2591,11 +2829,11 @@ sub sched_id2feed_date {
 
 		# rewind number of days from current feed date
 		my $rewinded_feed_date = date_math( -$rewinds, $feed_date_current );
-		dsay $rewinded_feed_date;
+		dsay "rewinded to:" . $rewinded_feed_date;
 		return $rewinded_feed_date;
 	}
 	else {
-		return $feed_date_current;
+		return date_math($date_shift,$feed_date_current);
 	}
 
 }

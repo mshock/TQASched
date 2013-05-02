@@ -2050,7 +2050,7 @@ sub refresh_dis {
 
 			# get build number (optional) from feed name
 			my ( $stripped_name, $build_num ) = ( $name =~ m/(.*)#(\d+)/ );
-			$build_num = 0 if $stripped_name =~ m/first call/i;
+			$build_num = 0 if defined $stripped_name && $stripped_name =~ m/first call/i;
 #
 #		# this could be associated with a different weekday, verify feed date
 #		my $feed_date_rewind = '';

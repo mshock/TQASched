@@ -74,9 +74,9 @@ while ( ++$run_counter ) {
 
 sub refresh {
 
-	#my ( $year, $month, $day ) = get_today();
+	my ( $year, $month, $day ) = get_today();
 
-	my ( $year, $month, $day ) = ( 2013, 5, 1);
+	#my ( $year, $month, $day ) = ( 2013, 5, 1);
 	my $refresh_date = sprintf('%u%02u%02u', $year, $month, $day);
 	say "refresh date: $refresh_date";
 

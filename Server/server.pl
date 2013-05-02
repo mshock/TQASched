@@ -71,6 +71,11 @@ sub handle_request {
 				 msg     => "${\$cgi->remote_addr}\t$params_string"
 			   }
 	);
-
-	print `perl ${\$cfg->target_script} $params_string`;
+	
+	# reload config file
+	$cfg->file( '../' . $cfg->config_file )
+	or warn "failed to reload config file $!";
+	
+	my $hosted_script = $cfg->maint_mode ? $cfg->maint_script : $cfg->report_script; 
+	print `perl $hosted_script $params_string`;
 }

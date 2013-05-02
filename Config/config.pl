@@ -45,9 +45,19 @@ sub define_defaults {
 
 		# path to script which prints content
 		# this content is hosted through TCP/IP under HTTP
-		server_hosted_script => {
-						DEFAULT => 'default.pl',
-						ALIAS => 'hosted_script|target_script|content_script',
+		server_report_script => {
+						DEFAULT => 'report.pl',
+						ALIAS => 'report_script',
+		},
+		
+		server_maint_script => {
+				DEFAULT => 'maint.pl',
+				ALIAS => 'maint_script',
+		},
+
+		server_maint_mode => {
+			DEFAULT => 0,
+			ALIAS => 'maint_mode' 
 		},
 
    # daemon configs
@@ -188,6 +198,7 @@ sub define_defaults {
 		report_view_debug => { DEFAULT => 0,
 							   ALIAS   => 'report_debug',
 		},
+		
 
 		#-------------------------------------------------------------------
 		#  all CGI variables for the report follow:

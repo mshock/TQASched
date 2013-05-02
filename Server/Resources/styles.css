@@ -1,6 +1,33 @@
 h1 {
-  color:red;
+  color:black;
   text-align:left;
+}
+
+table.debug {
+	padding-top: 10;
+	border: 5px solid crimson;
+}
+
+div.debug {
+	border: 2px solid black;
+	display:inline-block;
+	padding: 10;
+	margin-bottom: 5;
+	background: crimson;
+}
+
+table.freeze {
+	border:10px solid lightblue;
+}
+
+div.freeze {
+	background:lightblue;
+	border: 1px solid darkblue;
+	color:blue;
+	display:inline-block;
+	padding: 10;
+	margin-bottom: 2;
+	margin-top: 7;
 }
 
 table tr td+td+td+td {
@@ -141,3 +168,22 @@ tr.lateborder3 td {
 	border: 1px solid black;
 	font-size: x-small;
 }
+
+#top, #bottom, #left, #right {
+	background: lightblue;
+	position: fixed;
+}
+
+#left, #right {
+	top: 0; bottom: 0;
+	width: 3px;
+}
+#left { left: 0; }
+#right { right: 0; }
+		
+#top, #bottom {
+	left: 0; right: 0;
+	height: 3px;
+}
+#top { top: 0; }
+#bottom { bottom: 0; }

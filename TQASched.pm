@@ -691,7 +691,7 @@ sub store_row {
 				&& defined $is_legacy;
 
 		# if not, insert it into the database
-		my $update_insert = "insert into [TQASched].dbo.[Updates] values 
+		my $update_insert = "insert into [Updates] values 
 				('$update','$priority', '$is_legacy')";
 		$dbh_sched->do($update_insert)
 			or warn
@@ -711,7 +711,7 @@ sub store_row {
 
 	# let's link this to DIS feed id, also taken from the sheet (thank God)
 	$dbh_sched->do(
-		"insert into [TQASched].dbo.[Update_DIS] values
+		"insert into [Update_DIS] values
 		('$feed_id', '$update_id')"
 		)
 		or warn "\tfailed to insert $update : $update_id into DIS linking\n";
@@ -721,7 +721,7 @@ sub store_row {
 	for my $pair_aref (@time_offsets) {
 		my ( $this_offset, $weekday_code ) = @$pair_aref;
 		$dbh_sched->do( "
-			insert into [TQASched].dbo.[Update_Schedule] values 
+			insert into [Update_Schedule] values 
 				('$update_id','$weekday_code','$this_offset')
 		" )
 			or warn
@@ -778,9 +778,9 @@ sub next_sched_id {
 	my $offset;
 	my $next_sched_query = "
 		select b.sched_id, b.sched_epoch
-		from [TQASched].dbo.[Update_Schedule] a
+		from [Update_Schedule] a
 		join
-		[TQASched].dbo.[Update_Schedule] b
+		[Update_Schedule] b
 		on a.update_id = b.update_id
 		and (b.weekday = a.weekday + 1) 
 		and a.sched_id = $sched_id		
@@ -795,7 +795,7 @@ sub get_sched_id {
 	my ($update_id) = @_;
 
 	my $scheds_aref = $dbh_sched->selectall_arrayref( "
-		select sched_id, sched_epoch from [TQASched].dbo.[Update_Schedule]
+		select sched_id, sched_epoch from [Update_Schedule]
 		where update_id = '$update_id'" );
 
 	my @scheds = ();
@@ -1067,6 +1067,8 @@ sub update_history {
 		);
 	$is_legacy ||= 0;
 
+	($fd_q, $fn_q) = map {!defined $_ || $_ =~ /undef/i ? 'NULL' : $_} ($fd_q, $fn_q); 
+
 	dsay( $update_id, $sched_id, $trans_offset, $late_q,
 		  $fd_q,      $fn_q,     $trans_num,    $is_legacy,
 		  $feed_date, $seq_num
@@ -1078,7 +1080,7 @@ sub update_history {
 	if ( defined $seq_num ) {
 		my $select_last_upd = "
 			select top 1 [timestamp]
-			from [TQASched].dbo.update_history
+			from update_history
 			where
 			update_id = $update_id
 			and seq_num = $seq_num
@@ -1108,7 +1110,7 @@ sub update_history {
 	if ( $is_legacy && $late_q eq 'K' ) {
 		dsay "\tchecking legacy skip...";
 		my $select_skip_query = "
-			select hist_id, late from tqasched.dbo.update_history
+			select hist_id, late from update_history
 			where feed_date = '$feed_date'
 			and sched_id = '$sched_id'
 		";
@@ -1126,7 +1128,7 @@ sub update_history {
 			$trans_num ||= 'NULL';
 			$seq_num   ||= 'NULL';
 			my $insert_skip_query = "
-				insert into tqasched.dbo.update_history
+				insert into update_history
 				values 
 				($update_id, $sched_id, 
 				$trans_offset, $fd_q, $fn_q, 
@@ -1168,7 +1170,7 @@ sub update_history {
 
 	my $get_hist_query = "
 		select hist_id, late, filedate, filenum, transnum
-		from [TQASched].dbo.Update_History
+		from Update_History
 		where feed_date = '$feed_date'
 		$select_filter
 	";
@@ -1206,7 +1208,7 @@ sub update_history {
 		my ( $old_trans_num, $old_feed_date );
 		my $lookbehind_query = "
 		select hist_id, transnum, feed_date
-		from [TQASched].dbo.Update_History
+		from Update_History
 		where  sched_id = $sched_id
 		$upd_filter
 		";
@@ -1215,7 +1217,7 @@ sub update_history {
 			= $dbh_sched->selectrow_array($lookbehind_query);
 
 		#		say "select hist_id, transnum, feed_date
-		#		from [TQASched].dbo.Update_History
+		#		from Update_History
 		#		where  sched_id = $sched_id
 		#		and filedate = $fd_q
 		#		and filenum = $fn_q";
@@ -1271,7 +1273,7 @@ sub update_history {
 				: '(wait/late -> recvd)'
 			);
 		$dbh_sched->do( "
-			update TQASched.dbo.Update_History
+			update Update_History
 			set filedate = $fd_q, filenum = $fn_q, transnum = $trans_num, seq_num = $seq_num
 			where hist_id = $hist_id
 		" ) or say "update failed";
@@ -1316,7 +1318,7 @@ sub update_history {
 		# retrieve filedate and filenum from TQALic on nprod1
 		#my ( $fd, $fn ) = get_fdfn($trans_num);
 		my $insert_hist = "
-			insert into TQASched.dbo.Update_History 
+			insert into Update_History 
 			values
 			($update_id, $sched_id, $trans_offset, $fd_q, $fn_q, GetUTCDate(), '$late_q', $trans_num, '$feed_date', $seq_num )
 		";
@@ -1330,7 +1332,7 @@ sub update_history {
 		$seq_num ||= 'NULL';
 		$trans_num = 'NULL' if $trans_num != -1;
 		my $insert_hist = "
-			insert into TQASched.dbo.Update_History 
+			insert into Update_History 
 			values
 			($update_id, $sched_id, $trans_offset, NULL, NULL, GetUTCDate(), '$late_q', $trans_num, '$feed_date', $seq_num)
 		";
@@ -1344,7 +1346,7 @@ sub update_history {
 sub get_sched_wd {
 	my ($sched_id) = @_;
 	my $select_sched_wd = "
-		select weekday from tqasched.dbo.update_schedule 
+		select weekday from update_schedule 
 		where 
 		sched_id = $sched_id
 		";
@@ -1386,7 +1388,7 @@ sub time2offset {
 sub get_update_id {
 	my $name         = shift;
 	my $select_query = "
-		select top 1 update_id from [TQASched].dbo.[Updates] 
+		select top 1 update_id from [Updates] 
 		where name = '$name'
 	";
 	my $id = ( ( $dbh_sched->selectall_arrayref($select_query) )->[0] )->[0];
@@ -1398,7 +1400,7 @@ sub get_feed_id {
 	my ($update_id) = @_;
 	return unless $update_id;
 	my $select_query = "
-		select top 1 feed_id from [TQASched].dbo.[Update_DIS]
+		select top 1 feed_id from [Update_DIS]
 		where update_id = $update_id
 	";
 	return ($dbh_sched->selectrow_array($select_query))[0];
@@ -1658,6 +1660,11 @@ sub init_handle {
 
 	my ( $dbh, $success, $tries ) = ( undef, 0, 0 );
 
+	my $db_name = 'master';
+	if (exists $db->{name} && defined $db->{name} && $db->{name} !~ m/master/i) {
+		$db_name = $db->{name};
+	}
+	#say "$db_name $db->{server}";
 	# force connection, for server reboots/not responsive
 	while ( !$success ) {
 		$tries++;
@@ -1667,7 +1674,7 @@ sub init_handle {
 
 			sprintf(
 				"dbi:ODBC:Database=%s;Driver={SQL Server};Server=%s;UID=%s;PWD=%s",
-				$db->{name} || 'master', $db->{server},
+				$db_name, $db->{server},
 				$db->{user}, $db->{pwd}
 			),
 			{ RaiseError => 0, PrintError => 1 }
@@ -1719,7 +1726,7 @@ sub create_db {
 
   #	# create update table
   #	$dbh_sched->do(
-  #		"create table [TQASched].dbo.[Updates] (
+  #		"create table [Updates] (
   #	update_id int not null identity(1,1),
   #	name varchar(255) not null unique,
   #	priority tinyint,
@@ -1729,7 +1736,7 @@ sub create_db {
   #
   #	# create update/schedule linking table
   #	$dbh_sched->do(
-  #		"create table [TQASched].dbo.[Update_Schedule] (
+  #		"create table [Update_Schedule] (
   #	sched_id int not null identity(1,1),
   #	update_id int not null,
   #	weekday tinyint not null,
@@ -1740,7 +1747,7 @@ sub create_db {
   #
   #	# create history tracking table
   #	$dbh_sched->do(
-  #		"create table [TQASched].dbo.[Update_History] (
+  #		"create table [Update_History] (
   #	hist_id int not null identity(1,1),
   #	update_id int not null,
   #	sched_id int not null,
@@ -1756,7 +1763,7 @@ sub create_db {
   #
   #	# create linking table from DIS feed_ids to update_ids
   #	$dbh_sched->do( "
-  #	create table [TQASched].dbo.[Update_DIS] (
+  #	create table [Update_DIS] (
   #	update_dis_id int not null identity(1,1),
   #	feed_id varchar(20) not null,
   #	update_id int not null
@@ -1950,7 +1957,7 @@ sub update_scheduling {
 	my ($update_id) = @_;
 
 	my $update_sched_query = "
-		update [TQASched].dbo.Update_Schedule
+		update Update_Schedule
 		set sched_epoch = ? 
 		where
 		update_id = ?
@@ -2006,9 +2013,9 @@ sub refresh_dis {
 		my $expected = "
 		select ud.feed_id, u.name, us.sched_epoch, us.sched_id, us.update_id, u.prev_date
 		from 
-			TQASched.dbo.Update_Schedule us,
-			TQASched.dbo.Update_DIS ud,
-			TQASched.dbo.Updates u
+			Update_Schedule us,
+			Update_DIS ud,
+			Updates u
 		where ud.update_id = us.update_id
 		and u.update_id = ud.update_id
 		and u.is_legacy = 0
@@ -2050,7 +2057,10 @@ sub refresh_dis {
 
 			# get build number (optional) from feed name
 			my ( $stripped_name, $build_num ) = ( $name =~ m/(.*)#(\d+)/ );
+			# some special cases for build numbers
+			($build_num) = ($name =~ m/\((\d+)\)/);  
 			$build_num = 0 if defined $stripped_name && $stripped_name =~ m/first call/i;
+			
 #
 #		# this could be associated with a different weekday, verify feed date
 #		my $feed_date_rewind = '';
@@ -2071,7 +2081,7 @@ sub refresh_dis {
 #				{
 					
 				
-				if (defined $prev_date && $prev_date == 1 && !$build_num) {
+				if (defined $prev_date && $prev_date == 1 && $build_num) {
 					say "\tdoing some schedule_id/feed_date magic";
 					my	( $nsched_id, $noffset ) = next_sched_id($sched_id);
 					if (defined $nsched_id) {
@@ -2083,6 +2093,12 @@ sub refresh_dis {
 					= sched_id2feed_date( $sched_id, $target_date_string, (($build_num && $prev_date) || !$build_num ? 0 : -1) );
 				dsay $sched_feed_date;
 				$feed_date_filter = "and feeddate = '$sched_feed_date'";
+				# rewind Data Explorers (DXL_Daily) an extra time
+				# TODO figure out DXL
+				if ($update_id == 156) {
+					$sched_feed_date = date_math(-1, $sched_feed_date);
+					$feed_date_filter = "and feeddate = '$sched_feed_date'";	
+				}
 #				}
 				
 			#}
@@ -2092,7 +2108,7 @@ sub refresh_dis {
 # gets DIS server (sender) for enumerated feeds to hit for build-specific details
 # TODO cannot simply take newest, need to check feed date
 			my $transactions = "
-			select top 1 Status, ProcessTime, FileDate, FileNum, Sender, TransactionNumber, BuildTime, FeedDate, SeqNum, filesize 
+			select top 1 Status, BuildTime, FileDate, FileNum, Sender, TransactionNumber, ProcessTime, FeedDate, SeqNum, filesize 
 			from [TQALic].dbo.[PackageQueue] 
 			with (NOLOCK)
 			where TaskReference LIKE '%$feed_id%'
@@ -2112,6 +2128,26 @@ sub refresh_dis {
 				  $fn,         $sender,    $trans_num,
 				  $build_time, $feed_date, $seq_num
 			);
+
+			if ( !$filesize && $status ) {
+
+		   # TODO two sched_id inserts are happening here, need to investigate
+					say "\tthis was an empty update";
+					update_history(
+								  { update_id => $update_id,
+									sched_id  => $sched_id,
+									trans_offset =>
+										( datetime2offset($exec_end) || -1 ),
+									late      => 'E',
+									filedate  => 'NULL',
+									filenum   => 'NULL',
+									transnum  => $trans_num,
+									feed_date => $feed_date,
+									seq_num   => $seq_num,
+								  }
+					);
+					next;
+			}
 
 			#my $backdate_updates;
 
@@ -2136,10 +2172,10 @@ sub refresh_dis {
 	   # backdate builds packaged in the same UPD
 	   #				my $backdate_query = "
 	   #				select us.sched_id, u.name, u.update_id, uh.filedate, uh.feed_date
-	   #				from tqasched.dbo.update_schedule us
-	   #				join tqasched.dbo.updates u
+	   #				from update_schedule us
+	   #				join updates u
 	   #					on u.update_id = us.update_id
-	   #				left join tqasched.dbo.update_history uh
+	   #				left join update_history uh
 	   #					on uh.sched_id = us.sched_id
 	   #				--	and DateDiff(dd, [timestamp], GETUTCDATE()) < 1
 	   #				where us.weekday = $current_wd
@@ -2507,7 +2543,7 @@ sub refresh_legacy {
 
 			my $sched_query = "
 				select sched_epoch, sched_id 
-				from TQASched.dbo.Update_Schedule us
+				from Update_Schedule us
 				where update_id = $update_id
 				and weekday = $weekday_code
 			";
@@ -2758,9 +2794,9 @@ sub sched_id2feed_date {
 	# lookup weekday from schedule
 	my $date_lookup_query = "
 		select a.update_id, weekday, prev_date, is_legacy
-		from TQASched.dbo.Update_Schedule a
+		from Update_Schedule a
 		join 
-		TQASched.dbo.updates b
+		updates b
 		on a.update_id = b.update_id
 		where 
 		sched_id = $sched_id		
@@ -2789,7 +2825,7 @@ sub sched_id2feed_date {
 			$rewinds++;
 			my $weekday_sched_query = "
 			select sched_id
-			from TQASched.dbo.Update_Schedule
+			from Update_Schedule
 			where 
 			weekday = $wd
 			and update_id = $update_id
@@ -2961,12 +2997,12 @@ sub drop_db {
 
 # clear all update records in database
 sub clear_updates {
-	return $dbh_sched->do('delete from [TQASched].dbo.[Updates]')
+	return $dbh_sched->do('delete from [Updates]')
 		or die "error in clearing Updates table\n", $dbh_sched->errstr;
 }
 
 # clear all scheduling records in database
 sub clear_schedule {
-	return $dbh_sched->do('delete from [TQASched].dbo.[Update_Schedule]')
+	return $dbh_sched->do('delete from [Update_Schedule]')
 		or die "error in clearing Schedule table\n", $dbh_sched->errstr;
 }

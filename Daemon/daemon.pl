@@ -37,11 +37,16 @@ my $run_counter = 0;
 while ( ++$run_counter ) {
 	say "daemon has awoken and is beginning cycle number $run_counter";
 
-	# reload configs each run
-	# not a good idea - overrides CLI args!
-	# TODO preserve CLI args while refreshing the rest of configs from file
-	#$cfg = load_conf('..');
-	#say 'configs reloaded, checking out some new db handles';
+	# reload file configs
+	say $cfg->file( '../' . $cfg->config_file )
+		? 'config file reloaded'
+		: "failed to reload config file $!";
+
+	# exit if freeze set
+	if ( $cfg->freeze ) {
+		say 'daemon has been frozen, exiting';
+		exit;
+	}
 
 	# get new db handles each run
 	(  $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
@@ -77,7 +82,7 @@ sub refresh {
 	my ( $year, $month, $day ) = get_today();
 
 	#my ( $year, $month, $day ) = ( 2013, 5, 1);
-	my $refresh_date = sprintf('%u%02u%02u', $year, $month, $day);
+	my $refresh_date = sprintf( '%u%02u%02u', $year, $month, $day );
 	say "refresh date: $refresh_date";
 
 	# TODO fork children to do each refresh (how to handle handles?)
@@ -97,7 +102,8 @@ sub refresh {
 	) if $cfg->refresh_legacy;
 
 	if ( $cfg->lookahead ) {
-		my ( $tyear, $tmonth, $tday ) = parse_filedate(date_math(1, $refresh_date));
+		my ( $tyear, $tmonth, $tday )
+			= parse_filedate( date_math( 1, $refresh_date ) );
 		say "lookahead: $tyear$tmonth$tday";
 		refresh_dis( { year       => $tyear,
 					   month      => $tmonth,

@@ -13,7 +13,7 @@ use Data::Dumper;
 use lib '..';
 use TQASched;
 
-$cfg        = load_conf('..');
+$cfg = load_conf('..');
 my $debug_mode = $cfg->report_debug;
 
 # redirect that STDERR if it's not going to the term
@@ -27,12 +27,15 @@ my ( $headerdate, $headertime, $dbdate ) = calc_datetime();
 
 # get POST params
 # parsed from CLI arg key/value pairs
-my ( $post_date,    $legacy_filter, $dis_filter,
-	 $prev_search,  $search_type,   $upd_checked,
-	 $float_status, $report_title,  $refresh_enabled
-) = ('') x 9;
+my ( $post_date,       $legacy_filter, $dis_filter,   $prev_search,
+	 $search_type,     $upd_checked,   $float_status, $report_title,
+	 $refresh_enabled, $daemon_freeze
+) = ('') x 10;
 
 my $upd_num = 0;
+
+# check whether the daemon has been frozen
+$daemon_freeze = $cfg->freeze;
 
 $float_status    = cfg_checked( $cfg->float_status );
 $post_date       = $cfg->date;
@@ -41,7 +44,7 @@ $dis_filter      = cfg_checked( $cfg->dis );
 $prev_search     = $cfg->search;
 $search_type     = uc $cfg->search_type;
 $upd_checked     = cfg_checked( $cfg->search_upd );
-$report_title    = $cfg->title || 'Monitor :: TQASched';
+$report_title    = $cfg->title || 'TQASched :: Monitor';
 $refresh_enabled = cfg_checked( $cfg->enable_refresh );
 my $refresh_seconds = $cfg->refresh_seconds || 0;
 my $show_cols = cfg_checked( $cfg->show_cols );
@@ -130,9 +133,10 @@ sub print_header {
 		: sprintf( "<!-- auto refresh not enabled %s -->",
 				   ( $debug_mode ? "(debug: $refresh_seconds secs)" : '' ) );
 
-	my $debug_styles = '';
+	my $extra_styles = '';
+	my $body_top = '';
 	if ($debug_mode) {
-		$debug_styles = "
+		$extra_styles .= "
 		<style>
 			table tr td {
 			  font-size: large;
@@ -142,17 +146,35 @@ sub print_header {
 			}
 		</style>
 	";
+		$report_title = "[DEBUG] $report_title";
+	}
 
+# display notification that daemon is not running (for small manual downtimes)
+	if ($daemon_freeze) {
+		$report_title = "[FREEZE] $report_title";
+		#		$extra_styles .= "
+		#		<style>
+		#			table {
+		#			  border: 10px solid lightblue
+		#			}
+		#		</style>
+		#		";
+		$body_top = "
+		<div id='left'></div>
+		<div id='right'></div>
+		<div id='top'></div>
+		<div id='bottom'></div>";
 	}
 	say "
 <html>
 	<head>
-	$header_refresh
-	<title>$report_title</title>
-	<link rel='stylesheet' type='text/css' href='styles.css' />
-	$debug_styles
+		$header_refresh
+		<title>$report_title</title>
+		<link rel='stylesheet' type='text/css' href='styles.css' />
+		$extra_styles
 	</head>
 	<body>
+	$body_top
 ";
 }
 
@@ -183,20 +205,43 @@ sub print_thead {
 	my $left_colspan  = int( $num_headers / 2 );
 	my $right_colspan = $num_headers - $left_colspan;
 	my ( $prevdate, $nextdate ) = calc_adjacent();
-	my $debug_warning = $debug_mode
-		? "
+	my $header_warning = '';
+	my $page_table_classes = '';
+	# styles and formats for debug mode
+	if ($debug_mode) {
+		$page_table_classes .= ' debug ';
+		$header_warning .= "
+			<tr>
+				<th colspan = '$num_headers' class='warning'>
+					<div class='debug'>
+					<h1>DEBUG</h1>
+					</div>
+				</th>
+			</tr>";
+	}
+	# styles and formats for frozen daemon
+	if ($daemon_freeze) {
+		$page_table_classes .= ' freeze '; 
+		
+		$header_warning .= "
 	<tr>
-		<th colspan = '$num_headers'>
-			<h1>DEBUG</h1>
+		<th colspan = '$num_headers' class='warning'>
+			<div class='freeze'>
+			<h3>MANUAL FREEZE</h3>
+			<h5>daemon has been frozen for maintenance <br />
+			all feeds will refresh upon thaw</h5>
+			</div>
 		</th>
 	</tr>"
-		: '';
+			;
+	}
+
 	say "
 <form method='GET'>
 	
-	<table cellspacing='0' width='100%' border=0>
+	<table cellspacing='0' width='100%' border=0 class='$page_table_classes'>
 		<thead>
-			$debug_warning
+			$header_warning
 			<tr>
 				<th colspan='$num_headers' >
 					<h2>GMT Date $headerdate&nbsp&nbsp&nbsp|&nbsp&nbsp&nbsp$headertime </h2>
@@ -316,12 +361,12 @@ sub compile_table {
 
 	my $select_schedule = "
 	  select distinct us.sched_id, us.update_id, us.sched_epoch, u.name, u.is_legacy, d.feed_id, u.prev_date, u.priority
-	  from [TQASched].[dbo].[Update_Schedule] us
+	  from [Update_Schedule] us
 	  join
-	  [TQASched].[dbo].[Updates] u
+	  [Updates] u
 	  on u.update_id = us.update_id and weekday = $wd
 	  left join
-	  [TQASched].[dbo].[Update_DIS] d
+	  [Update_DIS] d
 	  on d.update_id = u.update_id 
 	  where 
 	  --weekday = $wd
@@ -370,18 +415,19 @@ sub compile_table {
 		}
 		my $select_history = "
 		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum
-		from [TQASched].[dbo].[Update_History]
+		from [Update_History]
 		where
 		sched_id = $sched_id
 		and datediff(day, feed_date, '$dbdate') < 6
 		$filter
 		order by hist_id desc
-	";    
-#	open LOG, '>>test.log';
-#	say LOG $select_history;
-#	close LOG;
-#	
-	#say $select_history if $sched_id == 271;
+	";
+
+		#	open LOG, '>>test.log';
+		#	say LOG $select_history;
+		#	close LOG;
+		#
+		#say $select_history if $sched_id == 271;
 		my $hist_query = $dbh_sched->prepare($select_history);
 		$hist_query->execute();
 
@@ -420,18 +466,18 @@ sub compile_table {
 			= format_border( $row_class, $border_prev );
 
 		my $tr_title = get_title($row_class);
-
+		my $extra_classes = '';
 #		$tr_title .= defined $seq_num
 #			? "auhseqnum = $seq_num\n"
 #			: "no seqnum\n";
 #		$tr_title .= defined $transnum && $transnum > 0 ? "distransnum = $transnum" : 'no transnum';
 #		$tr_title .= "'";
 
-		$seq_num  ||= 'N/A';
-		$transnum ||= 'N/A';
+		$seq_num    ||= 'N/A';
+		$transnum   ||= 'N/A';
 		$recvd_time ||= 'N/A';
 		my $update_row = sprintf( "
-		<tr $tr_title class='$border_class1 $border_class2 $row_class'>
+		<tr $tr_title class='$border_class1 $border_class2 $row_class $extra_classes'>
 			<td>%s\t%s</td>
 			<td>%s</td>
 			%s
@@ -538,25 +584,34 @@ sub row_info {
 	my $sched_time = offset2time( $sched_offset, 1 );
 
 	my ( $status, $daemon_ts, $recvd_time, $update );
-	# history record exists, the feed date is not equal to one week ago and it isn't a skipped update
-	if ( defined $hist_id && $sched_offset >= 172800 && !( report_date_math(-7) eq $feed_date ) && $late ne 'K') {
+
+# history record exists, the feed date is not equal to one week ago and it isn't a skipped update
+	if (    defined $hist_id
+		 && $sched_offset >= 172800
+		 && !( report_date_math(-7) eq $feed_date )
+		 && $late ne 'K' )
+	{
+
 		# if marked as not late or empty
 		if ( $late eq 'N' || $late eq 'E' ) {
-			# if update isn't marked as a previous day
-			# and not empty (marked as N - this was marked as recvd but still could be wrong day)
-			# and yesterday's feed date equals current feed date (typically the case)
-			# and the offset is early day, probably processed previous GMT day
+
+# if update isn't marked as a previous day
+# and not empty (marked as N - this was marked as recvd but still could be wrong day)
+# and yesterday's feed date equals current feed date (typically the case)
+# and the offset is early day, probably processed previous GMT day
 			if (    !defined $prev_date
 				 && $late eq 'E'
 				 && report_date_math(-1) eq $feed_date
 				 && $sched_offset % 86400 < 10800 )
 			{
-				# think this was to mark updates as wait if they had previous empty updates and were also early day
-				
+
+# think this was to mark updates as wait if they had previous empty updates and were also early day
+
 				$status = 'wait';
 			}
 			else {
-				# otherwise it's later in the day and not a prev_day feed so mark as received
+
+ # otherwise it's later in the day and not a prev_day feed so mark as received
 				$status = 'recv';
 
 				#				if ( $late eq 'N' ) {
@@ -567,11 +622,12 @@ sub row_info {
 				#				}
 			}
 		}
+
 		# all others are marked as late... maybe add elsif = 'Y'
-#		elsif ($late eq 'Y' && $sched_offset <= 108000) {
-#			#warn 'hits';
-#			$status = 'recv';
-#		}
+		#		elsif ($late eq 'Y' && $sched_offset <= 108000) {
+		#			#warn 'hits';
+		#			$status = 'recv';
+		#		}
 		# weekend case, mark recvd instead of late
 		else {
 			$status = 'late';
@@ -581,7 +637,7 @@ sub row_info {
 		$recvd_time = $filedate ? offset2time($hist_offset) : 'N/A';
 		$daemon_ts  = $hist_ts;
 		$update     = $filedate ? "$filedate-$filenum" : 'N/A';
-		
+
 		# if a records was found and late, then it was received and late
 		# use to apply border
 		$status =~ s/late/laterecv/;
@@ -596,19 +652,21 @@ sub row_info {
 	}
 
 	# handle monday special display case
-	elsif ($sched_offset <  172800 && defined $late) {
+	elsif ( $sched_offset < 172800 && defined $late ) {
 		$daemon_ts  = $hist_ts;
 		$update     = $filedate ? "$filedate-$filenum" : 'N/A';
 		$recvd_time = $filedate ? offset2time($hist_offset) : 'N/A';
+
 		# TODO this is a display fix for weekend lateness
-		if ($late eq 'Y') {
-			$status = 'recv';		
+		if ( $late eq 'Y' ) {
+			$status = 'recv';
 		}
-		elsif ($late eq 'E') {
-			$status = 'empty';
+		elsif ( $late eq 'E' ) {
+			$status     = 'empty';
 			$recvd_time = 'N/A';
 			$update     = 'N/A';
 		}
+
 		# really early recv'd updates
 		else {
 			$status = 'recv';
@@ -637,11 +695,10 @@ sub row_info {
 		$row_class = 'empty' . ( $row_parity ? '_even' : '_odd' );
 	}
 	elsif ( !defined $late && $status eq 'wait' ) {
-		$row_class
-			= ( $is_legacy
-				? ( now_offset() > $sched_offset ? 'error' : 'wait' )
-				: ( now_offset() > $sched_offset ? 'late' : 'wait' ) )
-			. ( $row_parity ? '_even' : '_odd' );
+		$row_class = ( $is_legacy
+					   ? ( now_offset() > $sched_offset ? 'error' : 'wait' )
+					   : ( now_offset() > $sched_offset ? 'late' : 'wait' )
+		) . ( $row_parity ? '_even' : '_odd' );
 	}
 	else {
 		$row_class = $status . ( $row_parity ? '_even' : '_odd' );

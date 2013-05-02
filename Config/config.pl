@@ -84,6 +84,7 @@ sub define_defaults {
 		},
 
 		# enable the daemon to scan 1 GMT day ahead of current
+		# TODO seems to break feed date calcs, also not necessary for lookahead
 		daemon_lookahead => { DEFAULT => 0,
 							  ARGS    => '!',
 							  ALIAS   => 'lookahead',
@@ -96,6 +97,11 @@ sub define_defaults {
 		daemon_pause_mode => { DEFAULT => 0,
 							   ARGS    => '!',
 							   ALIAS   => 'pause_mode',
+		},
+
+		daemon_freeze => {
+			DEFAULT => 0,
+			ALIAS => 'freeze',
 		},
 
 		# scheduling configs

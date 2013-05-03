@@ -45,19 +45,16 @@ sub define_defaults {
 
 		# path to script which prints content
 		# this content is hosted through TCP/IP under HTTP
-		server_report_script => {
-						DEFAULT => 'report.pl',
-						ALIAS => 'report_script',
-		},
-		
-		server_maint_script => {
-				DEFAULT => 'maint.pl',
-				ALIAS => 'maint_script',
+		server_report_script => { DEFAULT => 'report.pl',
+								  ALIAS   => 'report_script',
 		},
 
-		server_maint_mode => {
-			DEFAULT => 0,
-			ALIAS => 'maint_mode' 
+		server_maint_script => { DEFAULT => 'maint.pl',
+								 ALIAS   => 'maint_script',
+		},
+
+		server_maint_mode => { DEFAULT => 0,
+							   ALIAS   => 'maint_mode'
 		},
 
    # daemon configs
@@ -93,8 +90,8 @@ sub define_defaults {
 								ALIAS   => 'refresh_dis',
 		},
 
-		# enable the daemon to scan 1 GMT day ahead of current
-		# TODO seems to break feed date calcs, also not necessary for lookahead
+	   # enable the daemon to scan 1 GMT day ahead of current
+	   # TODO seems to break feed date calcs, also not necessary for lookahead
 		daemon_lookahead => { DEFAULT => 0,
 							  ARGS    => '!',
 							  ALIAS   => 'lookahead',
@@ -109,19 +106,27 @@ sub define_defaults {
 							   ALIAS   => 'pause_mode',
 		},
 
-		daemon_freeze => {
-			DEFAULT => 0,
-			ALIAS => 'freeze',
+		daemon_freeze => { DEFAULT => 0,
+						   ALIAS   => 'freeze',
 		},
+
+		daemon_force_refresh => { DEFAULT => 0,
+								  ARGS    => '!',
+								  ALIAS   => 'force_refresh',
+		},
+		daemon_refresh_date => { DEFAULT => 0,
+								  ARGS    => ':s',
+								  ALIAS   => 'refresh_date',
+		},
+		
 
 		# scheduling configs
 		#
 		# path to master scheduling data spreadsheet
 		# TODO this probably no longer loads with new format
-		sched_master_schedule => {
-							 DEFAULT => 'TQA_Update_Schedule.xls',
-							 ARGS    => '=s',
-							 ALIAS   => 'master_sched',
+		sched_master_schedule => { DEFAULT => 'TQA_Update_Schedule.xls',
+								   ARGS    => '=s',
+								   ALIAS   => 'master_sched',
 		},
 
 		# path to blank master checklist
@@ -198,7 +203,6 @@ sub define_defaults {
 		report_view_debug => { DEFAULT => 0,
 							   ALIAS   => 'report_debug',
 		},
-		
 
 		#-------------------------------------------------------------------
 		#  all CGI variables for the report follow:

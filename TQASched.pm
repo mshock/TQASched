@@ -143,14 +143,15 @@ sub dsay {
 
 	# avoid undef warnings and be more clear in output
 	my @dumped_args;
-	for my $var (@_) {
-		$var = '<undef>' unless defined $var;
-		push @dumped_args, $var;
-	}
+	# TODO this is setting variables out of scope...
+#	for my $var (@_) {
+#		$var = '<undef>' unless defined $var;
+#		push @dumped_args, $var;
+#	}
 
 	my $output
 		= "\nDEBUG"
-		. join( "\n\t", " caller:\t@{[caller]}", @dumped_args )
+		. join( "\n\t", " caller:\t@{[caller]}", @_ )
 		. "\n\\DEBUG\n";
 
 	# values > 1 correspond to different debug modes, wtb switch for numerics
@@ -780,13 +781,49 @@ sub next_sched_id {
 		select b.sched_id, b.sched_epoch
 		from [Update_Schedule] a
 		join
+		update_schedule c
+		on a.update_id = c.update_id
+		join
 		[Update_Schedule] b
 		on a.update_id = b.update_id
-		and (b.weekday = a.weekday + 1) 
-		and a.sched_id = $sched_id		
+		and ((b.weekday = a.weekday + 1) or (a.weekday = 6 and b.weekday = 0) or (a.weekday = 5 and b.weekday = 1 and c.weekday != 6 and c.weekday != 0))  
+		where a.sched_id = $sched_id
+		and b.sched_id = c.sched_id
 	";
+	dsay $next_sched_query;
+	my $old_sched_id = $sched_id;
 	( $sched_id, $offset ) = $dbh_sched->selectrow_array($next_sched_query);
-	dsay( $sched_id, $offset );
+	dsay($old_sched_id, $sched_id, $offset );
+	
+	
+	
+	return ( $sched_id, $offset );
+}
+
+# gets the sched_id of the next day given sched_id of current
+# TODO make this work for odd schedules
+sub prev_sched_offset {
+	my $sched_id = shift;
+	my $offset;
+	my $next_sched_query = "
+		select b.sched_epoch
+		from [Update_Schedule] a
+		join
+		update_schedule c
+		on a.update_id = c.update_id
+		join
+		[Update_Schedule] b
+		on a.update_id = b.update_id
+		and ((b.weekday = a.weekday - 1) or (a.weekday = 0 and b.weekday = 6) or (a.weekday = 1 and b.weekday = 5 and c.weekday != 6 and c.weekday != 0))  
+		where a.sched_id = $sched_id
+		and b.sched_id = c.sched_id
+	";
+	dsay $next_sched_query;
+	(  $offset ) = $dbh_sched->selectrow_array($next_sched_query);
+	dsay( $offset );
+	
+	
+	
 	return ( $sched_id, $offset );
 }
 
@@ -1052,6 +1089,14 @@ sub upd_date {
 	return sprintf( '%u%02u%02u', $year, $month, $mday );
 }
 
+sub is_prev_date {
+	my ($update_id) = @_;
+	
+	return ($dbh_sched->selectrow_array("
+		select prev_date from updates where update_id = $update_id
+	"));
+}
+
 # store/modify update history entry
 sub update_history {
 	my $hashref = shift;
@@ -1185,60 +1230,128 @@ sub update_history {
 
 	# if no history record found (most likely for this transaction number)
 	# check if just the transaction number needs to be updated
+	# TODO no trans num updates are needed ever
 	my $update_trans_flag = 0;
 	if ( !$hist_id && $fd_q && $fn_q ) {
 
-		# rewrite query to handle nulls as well
-		my $upd_filter = '';
-		if ( $fd_q eq 'NULL' ) {
-
-			# this is an empty update, need to add feed date
-			$upd_filter = "
-			and filedate is NULL
-			and filenum is NULL
-			and feed_date = '$feed_date' 
-			";
-		}
-		else {
-			$upd_filter = "
-			and filedate = $fd_q
-			and filenum = $fn_q
-			"
-		}
-		my ( $old_trans_num, $old_feed_date );
-		my $lookbehind_query = "
-		select hist_id, transnum, feed_date
-		from Update_History
-		where  sched_id = $sched_id
-		$upd_filter
-		";
-		dsay $lookbehind_query;
-		( $hist_id, $old_trans_num, $old_feed_date )
-			= $dbh_sched->selectrow_array($lookbehind_query);
-
-		#		say "select hist_id, transnum, feed_date
-		#		from Update_History
-		#		where  sched_id = $sched_id
-		#		and filedate = $fd_q
-		#		and filenum = $fn_q";
-		#say "$old_trans_num $trans_num";
-		if ( defined $old_trans_num && $old_trans_num != $trans_num ) {
-			say "\tnew transaction number";
-			$update_trans_flag = 1;
-		}
-		elsif ( !defined $old_trans_num ) {
-			if ( ( $late_q eq 'Y' || $late_q eq 'E' ) && !$is_legacy ) {
-
-				say "\tnext trans number, would skip";
-
-				#return;
-			}
-		}
-		elsif ( $old_trans_num == $trans_num && $old_feed_date eq $feed_date )
-		{
-			say "\tnon-enum from prev day, skip";
-			return;
-		}
+#		# rewrite query to handle nulls as well
+#		my $upd_filter = "and seq_num = $seq_num";
+##		if ( $fd_q eq 'NULL' ) {
+##
+##			# this is an empty update, need to add feed date
+##			$upd_filter = "
+##			and filedate is NULL
+##			and filenum is NULL
+##			and feed_date = '$feed_date' 
+##			";
+##		}
+##		else {
+##			$upd_filter = "
+##			and filedate = $fd_q
+##			and filenum = $fn_q
+##			"
+##		}
+#		my ( $old_trans_num, $old_feed_date );
+#		my $lookbehind_query = "
+#		select hist_id, transnum, feed_date
+#		from Update_History
+#		where  update_id = $update_id
+#		$upd_filter
+#		";
+#		dsay $lookbehind_query;
+#		( $hist_id, $old_trans_num, $old_feed_date )
+#			= $dbh_sched->selectrow_array($lookbehind_query);
+#
+#		#		say "select hist_id, transnum, feed_date
+#		#		from Update_History
+#		#		where  sched_id = $sched_id
+#		#		and filedate = $fd_q
+#		#		and filenum = $fn_q";
+#		#say "$old_trans_num $trans_num";
+#		if ( defined $old_trans_num && $old_trans_num != $trans_num ) {
+#			say "\tnew transaction number";
+#			$update_trans_flag = 1;
+#		}
+#		elsif ( !defined $old_trans_num ) {
+#			if ( ( $late_q eq 'Y' || $late_q eq 'E' ) && !$is_legacy ) {
+#
+#				say "\tnext trans number";
+#				my $sched_offset;
+#				my $old_sched_id = $sched_id;
+#				my $old_sched_offset = $sched_offset;
+#				($sched_id, $sched_offset) = next_sched_id($sched_id);
+#				dsay "$sched_id $sched_offset";
+#				say "$sched_id $sched_offset";
+#				if (defined $sched_offset && $sched_offset && $trans_offset && $trans_offset != -1 && is_prev_date($update_id)) {
+#					say "\tseqnum found";
+#					my $comp_result = comp_offsets($trans_offset, $sched_offset);
+#					# late
+#					if ($comp_result == 1) {
+#						$late_q = 'Y';
+#					}
+#					# wait
+#					elsif ($comp_result == 0) {
+#						$late_q = 'N';
+#					}
+#					# early
+#					elsif ($comp_result == -1) {
+#						$late_q = 'N';
+#					}
+#					else {
+#						say "\terror $sched_id";
+#						return;
+#					}
+#				}
+#				else {
+#					say "\tseq_num not found";
+#					#say  use original $sched_id vs $old_sched_id";
+#					#my ($oy, $om, $od) = parse_filedate($old_feed_date);
+#					$old_feed_date ||= 0;
+#					$sched_id = $old_sched_id; 
+#					#$sched_id ||= $old_sched_id;
+#					#$sched_offset ||= $old_sched_offset;
+#					($sched_id, $sched_offset) = next_sched_id($sched_id);
+#					$sched_id = $old_sched_id; 
+#					#$sched_offset ||= $old_sched_offset;
+#					$old_feed_date =~ s/(\d+)\D+(\d+)\D+(\d+)\D.*/$1$2$3/;
+#					$feed_date =~ s/(\d+)\D+(\d+)\D+(\d+)\D.*/$1$2$3/;
+#					
+#					#my ($ny, $nm, $nd) = parse_filedate($feed_date);
+#					# this is a newer feed date, store in next sched_id
+#					
+#					if ($old_feed_date < $feed_date) {
+#						# recalc for new sched_id
+#						my $comp_result = comp_offsets($trans_offset, $sched_offset);
+#						# late
+#						if ($comp_result == 1) {
+#							$late_q = 'Y';
+#						}
+#						# wait
+#						elsif ($comp_result == 0) {
+#							$late_q = 'N';
+#						}
+#						# early
+#						elsif ($comp_result == -1) {
+#							$late_q = 'N';
+#						}
+#						else {
+#							say "\terror $sched_id";
+#							return;
+#						}
+#					}
+#					# otherwise revert sched_id
+#					else {
+#						$sched_id = $old_sched_id;
+#					}
+#				}
+#				
+#			}
+#		}
+#		elsif ( $old_trans_num == $trans_num && $old_feed_date eq $feed_date )
+#		{
+#			say "\tnon-enum from prev day, skip";
+#			return;
+#		}
 	}
 
 	# recvd already, return
@@ -1426,7 +1539,7 @@ sub load_conf {
 	$cfg = AppConfig->new( { CREATE => 1,
 							 ERROR  => \&appconfig_error,
 							 GLOBAL => { ARGCOUNT => ARGCOUNT_ONE,
-										 DEFAULT  => "<undef>",
+										 DEFAULT  => '',
 							 },
 						   }
 	);
@@ -1488,6 +1601,7 @@ sub find_pod_usage {
 # parse YYYYMMDD into (y,m,d)
 sub parse_filedate {
 	my ($filedate) = @_;
+	return unless $filedate;
 	if ( my ( $year, $month, $mday )
 		 = ( $filedate =~ m/(\d{4})\D*(\d{2})\D*(\d{2})/ ) )
 	{
@@ -2058,7 +2172,7 @@ sub refresh_dis {
 			# get build number (optional) from feed name
 			my ( $stripped_name, $build_num ) = ( $name =~ m/(.*)#(\d+)/ );
 			# some special cases for build numbers
-			($build_num) = ($name =~ m/\((\d+)\)/);  
+			($build_num) = ($name =~ m/\((\d+)\)/) unless $build_num;  
 			$build_num = 0 if defined $stripped_name && $stripped_name =~ m/first call/i;
 			
 #
@@ -2083,11 +2197,15 @@ sub refresh_dis {
 				
 				if (defined $prev_date && $prev_date == 1 && $build_num) {
 					say "\tdoing some schedule_id/feed_date magic";
-					my	( $nsched_id, $noffset ) = next_sched_id($sched_id);
-					if (defined $nsched_id) {
-						$sched_id = $nsched_id;
-						$offset = $noffset;
+					if (my ($psched_id, $poffset) = prev_sched_offset($sched_id)) {
+						#$offset = $poffset;
+						$sched_id = $psched_id; 
 					}
+#					my	( $nsched_id, $noffset ) = next_sched_id($sched_id);
+#					if (defined $nsched_id) {
+#						#$sched_id = $nsched_id if $nsched_id > $sched_id;
+#						$offset = $noffset;
+#					}
 				}
 				my $sched_feed_date
 					= sched_id2feed_date( $sched_id, $target_date_string, (($build_num && $prev_date) || !$build_num ? 0 : -1) );
@@ -2126,13 +2244,12 @@ sub refresh_dis {
 
 			dsay( $status,     $exec_end,  $fd,
 				  $fn,         $sender,    $trans_num,
-				  $build_time, $feed_date, $seq_num
+				  $build_time, $feed_date, $seq_num, $filesize
 			);
 
-			if ( !$filesize && $status ) {
-
-		   # TODO two sched_id inserts are happening here, need to investigate
-					say "\tthis was an empty update";
+			# handle daily (non-enum) empty feeds now and go to next
+			if ( !$filesize && $status && !$build_num) {
+					say "\tthis was an empty non-enum update";
 					update_history(
 								  { update_id => $update_id,
 									sched_id  => $sched_id,
@@ -2232,11 +2349,10 @@ sub refresh_dis {
 					#					= $dbh_dis->selectrow_array($dis_trans) or
 				}
 				dsay $sched_feed_date;
-
 				# select this transaction from TQALic
 				# to get AUH process time, along with filenum and filedate
 				my $transactions = "
-				select top 1 Status, ProcessTime, FileDate, FileNum, Sender, 
+				select top 1 Status, BuildTime, FileDate, FileNum, Sender, 
 					TransactionNumber, DateDiff(dd, [BuildTime], GETUTCDATE()), FeedDate, seqnum,
 					filesize 
 				from [TQALic].dbo.[PackageQueue] 
@@ -2252,7 +2368,7 @@ sub refresh_dis {
 				   $sender,  $trans_num, $build_time, $feed_date,
 				   $seq_num, $filesize
 				) = $dbh_prod1->selectrow_array($transactions);
-
+					#say "fd: $fd" and exit;
 #					or warn
 #					"\t[2] no transaction # found for enum feed $name, $sender skipping\n$transactions\n"
 #					and next;
@@ -2267,7 +2383,7 @@ sub refresh_dis {
 				if ( !$filesize && $status ) {
 
 		   # TODO two sched_id inserts are happening here, need to investigate
-					say "\tthis was an empty update";
+					say "\tthis was an empty enum update";
 					update_history(
 								  { update_id => $update_id,
 									sched_id  => $sched_id,
@@ -2818,7 +2934,7 @@ sub sched_id2feed_date {
 	# not for legacy
 	elsif ( ( defined $prev_date && $prev_date == 1 ) || $is_legacy ) {
 		dsay "rewinding";
-		until ( defined $found && $found ) {
+		until ( defined $found && $found > 0 ) {
 
 			# rollback to saturday properly
 			$wd = 6 if --$wd == -1;
@@ -2840,7 +2956,16 @@ sub sched_id2feed_date {
 
 				# || ( !$is_legacy && $prev_date && !defined $sched_id ) )
 			{
-				$found = 1;
+				$found++;
+				# extra rewind for RKD early feeds
+				if ( $update_id == 432 || $update_id == 433) {
+					if ($found == 0) {
+						$found = 1;
+					}
+					else {
+						$found = -1;	
+					}
+				}
 			}
 
 			# legacy prev date is defined, but 0 for 1 more rewind run

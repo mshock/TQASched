@@ -43,7 +43,7 @@ while ( ++$run_counter ) {
 		: "failed to reload config file $!";
 
 	# exit if freeze set
-	if ( $cfg->freeze ) {
+	if ( $cfg->freeze && !$cfg->force_refresh ) {
 		say 'daemon has been frozen, exiting';
 		exit;
 	}
@@ -72,14 +72,15 @@ while ( ++$run_counter ) {
 	say 'daemon run finished, slaying db handles';
 	kill_handles( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
 				  $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 );
-	say "sleeping for ${\$cfg->update_freq} seconds...";
+	
 	last if $cfg->runonce;
+	say "sleeping for ${\$cfg->update_freq} seconds...";
 	sleep( $cfg->update_freq );
 }
 
 sub refresh {
-
-	my ( $year, $month, $day ) = get_today();
+	
+	my ( $year, $month, $day ) = $cfg->refresh_date ? parse_filedate($cfg->refresh_date) : get_today();
 
 	#my ( $year, $month, $day ) = ( 2013, 5, 1);
 	my $refresh_date = sprintf( '%u%02u%02u', $year, $month, $day );

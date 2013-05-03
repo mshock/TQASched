@@ -2548,7 +2548,7 @@ sub refresh_legacy {
 	my $sched_xls = $tyear ? find_sched($tyear, $tmonth, $tday) : find_sched(); 
 		# '\\\\10.16.40.216/dataops/Operations_Update_Summary/Checklist_2013/DailyCheckList_20130422.xls';
 
-	my $feed_date = sprintf( '%u%02u%02u', $tyear, $tmonth, $tday );
+	my $feed_date = date_math(-1, sprintf( '%u%02u%02u', $tyear, $tmonth, $tday ));
 
 	# create parser and parse xls
 	my $xlsparser = Spreadsheet::ParseExcel->new();

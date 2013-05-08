@@ -428,10 +428,11 @@ sub compile_table {
 		where
 		sched_id = $sched_id
 		and feed_date <= '$dbdate'
+		and abs(datediff(dd, '$dbdate', feed_date)) < 3
 		$filter
 		order by hist_id desc
 	";
-	warn $select_history;
+	#warn $select_history;
 		#	open LOG, '>>test.log';
 		#	say LOG $select_history;
 		#	close LOG;

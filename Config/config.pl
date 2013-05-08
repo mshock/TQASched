@@ -118,7 +118,16 @@ sub define_defaults {
 								  ARGS    => ':s',
 								  ALIAS   => 'refresh_date',
 		},
-		
+		daemon_refresh_from => {
+			DEFAULT => 0,
+								  ARGS    => ':s',
+								  ALIAS   => 'refresh_from',
+		},
+		daemon_refresh_to => {
+			DEFAULT => 0,
+								  ARGS    => ':s',
+								  ALIAS   => 'refresh_to',
+		},
 
 		# scheduling configs
 		#

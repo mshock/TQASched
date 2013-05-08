@@ -134,7 +134,7 @@ sub print_header {
 				   ( $debug_mode ? "(debug: $refresh_seconds secs)" : '' ) );
 
 	my $extra_styles = '';
-	my $body_top = '';
+	my $body_top     = '';
 	if ($debug_mode) {
 		$extra_styles .= "
 		<style>
@@ -152,6 +152,7 @@ sub print_header {
 # display notification that daemon is not running (for small manual downtimes)
 	if ($daemon_freeze) {
 		$report_title = "[FREEZE] $report_title";
+
 		#		$extra_styles .= "
 		#		<style>
 		#			table {
@@ -205,24 +206,29 @@ sub print_thead {
 	my $left_colspan  = int( $num_headers / 2 );
 	my $right_colspan = $num_headers - $left_colspan;
 	my ( $prevdate, $nextdate ) = calc_adjacent();
-	my $header_warning = '';
+	my $header_warning     = '';
 	my $page_table_classes = '';
+
 	# styles and formats for debug mode
 	if ($debug_mode) {
 		$page_table_classes .= ' debug ';
+		# debug will also display weekday name
+		my $weekday_name =  code_weekday(get_wd(),1);
 		$header_warning .= "
 			<tr>
 				<th colspan = '$num_headers' class='warning'>
 					<div class='debug'>
 					<h1>DEBUG</h1>
+					<h5>$weekday_name</h5>
 					</div>
 				</th>
 			</tr>";
 	}
+
 	# styles and formats for frozen daemon
 	if ($daemon_freeze) {
-		$page_table_classes .= ' freeze '; 
-		
+		$page_table_classes .= ' freeze ';
+
 		$header_warning .= "
 	<tr>
 		<th colspan = '$num_headers' class='warning'>
@@ -235,6 +241,9 @@ sub print_thead {
 	</tr>"
 			;
 	}
+
+	
+	
 
 	say "
 <form method='GET'>
@@ -374,10 +383,10 @@ sub compile_table {
       and d.feed_id NOT LIKE 'RDC%'
       and us.enabled = 1
       $filter
-      order by sched_epoch, name asc
+      order by sched_epoch asc, name asc
 	";
 
-	#say $select_schedule;
+	#warn $select_schedule;
 	$filter = '';
 	if ( $prev_search && $search_type eq 'FEED_DATE' ) {
 		$filter .= " and feed_date = '$prev_search'";
@@ -418,7 +427,7 @@ sub compile_table {
 		from [Update_History]
 		where
 		sched_id = $sched_id
-		and datediff(day, feed_date, '$dbdate') < 6
+		and feed_date <= '$dbdate'
 		$filter
 		order by hist_id desc
 	";
@@ -465,8 +474,9 @@ sub compile_table {
 		( $border_class1, $border_class2, $border_prev )
 			= format_border( $row_class, $border_prev );
 
-		my $tr_title = get_title($row_class);
+		my $tr_title      = get_title($row_class);
 		my $extra_classes = '';
+
 #		$tr_title .= defined $seq_num
 #			? "auhseqnum = $seq_num\n"
 #			: "no seqnum\n";
@@ -661,7 +671,7 @@ sub row_info {
 		if ( $late eq 'Y' ) {
 			$status = 'recv';
 		}
-		elsif ( $late eq 'E' ) {
+		if ( $late eq 'E' ) {
 			$status     = 'empty';
 			$recvd_time = 'N/A';
 			$update     = 'N/A';
@@ -694,10 +704,13 @@ sub row_info {
 	{
 		$row_class = 'empty' . ( $row_parity ? '_even' : '_odd' );
 	}
+
+	# late check on all updates that are still in wait state by this point
 	elsif ( !defined $late && $status eq 'wait' ) {
+		my $display_late = time > sched_epoch( $sched_offset, $dbdate );
 		$row_class = ( $is_legacy
-					   ? ( now_offset() > $sched_offset ? 'error' : 'wait' )
-					   : ( now_offset() > $sched_offset ? 'late' : 'wait' )
+					   ? ( $display_late ? 'error' : 'wait' )
+					   : ( $display_late ? 'late' : 'wait' )
 		) . ( $row_parity ? '_even' : '_odd' );
 	}
 	else {

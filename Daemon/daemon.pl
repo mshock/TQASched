@@ -13,6 +13,17 @@ $cfg = load_conf('..');
 
 my $debug_mode = $cfg->debug;
 my $pause_mode = $cfg->pause_mode;
+my $refresh_to = $cfg->refresh_to;
+my $refresh_from = $cfg->refresh_from;
+my $refresh_date = $cfg->refresh_date;
+
+# force runonce with refresh ranges, error if improper range
+if ($refresh_to || $refresh_from || $refresh_date) {
+	if ($refresh_to && !$refresh_from) {
+		die 'refresh_to requires start date (-refresh_from)';
+	}
+	$cfg->set('runonce', 1);
+}  
 
 # redirect that STDERR if it's not going to the term
 redirect_stderr( $cfg->daemon_log ) if caller && !$debug_mode;
@@ -47,7 +58,7 @@ while ( ++$run_counter ) {
 		say 'daemon has been frozen, exiting';
 		exit;
 	}
-
+	
 	# get new db handles each run
 	(  $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
 	   $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5
@@ -67,8 +78,23 @@ while ( ++$run_counter ) {
 	}
 
 	say 'got new db handles, running tasks';
-
-	refresh();
+	# auto-run a range of dates
+	my @refresh_dates = ();
+	if ($refresh_from) {
+		my $refresh_end = $refresh_to ? $refresh_to : format_dateparts( get_today() );
+		until ( $refresh_from > $refresh_end) {
+			#say "end $refresh_end from $refresh_from";
+			push @refresh_dates, $refresh_from;
+			$refresh_from = date_math(1, $refresh_from, '');
+		}
+	}
+	elsif ($refresh_date) {
+		push @refresh_dates, $refresh_date;
+	}
+	else {
+		push @refresh_dates, format_dateparts(get_today());
+	}
+	refresh($_) for @refresh_dates;
 	say 'daemon run finished, slaying db handles';
 	kill_handles( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
 				  $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 );
@@ -79,12 +105,12 @@ while ( ++$run_counter ) {
 }
 
 sub refresh {
-	
-	my ( $year, $month, $day ) = $cfg->refresh_date ? parse_filedate($cfg->refresh_date) : get_today();
+	my ($target_date) = @_;
+	my ( $year, $month, $day ) = $target_date ? parse_filedate($target_date) :  get_today();
 
 	#my ( $year, $month, $day ) = ( 2013, 5, 1);
-	my $refresh_date = sprintf( '%u%02u%02u', $year, $month, $day );
-	say "refresh date: $refresh_date";
+	my $refresh_date_string = sprintf( '%u%02u%02u', $year, $month, $day );
+	say "refresh date: $refresh_date_string";
 
 	# TODO fork children to do each refresh (how to handle handles?)
 
@@ -104,7 +130,7 @@ sub refresh {
 
 	if ( $cfg->lookahead ) {
 		my ( $tyear, $tmonth, $tday )
-			= parse_filedate( date_math( 1, $refresh_date ) );
+			= parse_filedate( date_math( 1, $refresh_date_string ) );
 		say "lookahead: $tyear$tmonth$tday";
 		refresh_dis( { year       => $tyear,
 					   month      => $tmonth,

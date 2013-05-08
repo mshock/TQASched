@@ -431,7 +431,7 @@ sub compile_table {
 		$filter
 		order by hist_id desc
 	";
-
+	warn $select_history;
 		#	open LOG, '>>test.log';
 		#	say LOG $select_history;
 		#	close LOG;

@@ -2401,6 +2401,10 @@ sub refresh_dis {
 				  $sender,  $trans_num, $build_time, $feed_date,
 				  $seq_num, $filesize
 			);
+			if (defined $status && $status == 0) {
+				say "\tAUH currently processing, waiting";
+				next;
+			}
 			# swap process time for build time if not null
 			if ($build_time !~ m/^1900/) {
 				say "\tadjusting end time from build: $exec_end to process: $build_time";
@@ -2506,13 +2510,13 @@ sub refresh_dis {
 #					}
 					say
 						"\tno trans num found for DIS trans num, rewinding again";
-					if ($prev_date) {
+					#if ($prev_date) {
 						$sched_feed_date = date_math( -1, $sched_feed_date );
-					}
-					else {
-						sched_id2feed_date( $sched_id,
-										  date_math( -1, $sched_feed_date ) );
-					}
+					#}
+#					else {
+#						sched_id2feed_date( $sched_id,
+#										  date_math( -1, $sched_feed_date ) );
+#					}
 					# RKD enumerated rewind
 #					if ( is_weekend($current_wd) && ($feed_id =~ m/^RKDGF/)) { 
 #					#( $update_id == 432 || $update_id == 433)) {

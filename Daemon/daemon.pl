@@ -110,7 +110,7 @@ sub refresh {
 
 	#my ( $year, $month, $day ) = ( 2013, 5, 1);
 	my $refresh_date_string = sprintf( '%u%02u%02u', $year, $month, $day );
-	say "refresh date: $refresh_date_string";
+	say "\nREFRESH DATE: $refresh_date_string";
 
 	# TODO fork children to do each refresh (how to handle handles?)
 

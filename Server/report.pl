@@ -367,13 +367,17 @@ sub compile_table {
 			$filter .= " and us.sched_epoch = $sched_offset";
 		}
 	}
+	my $next_wd = shift_wd($wd, 1);
+	my $filter_sched = " and ( us.weekday = $wd )";
+	
 
-	my $select_schedule = "
+	my $select_schedule1 = "
 	  select distinct us.sched_id, us.update_id, us.sched_epoch, u.name, u.is_legacy, d.feed_id, u.prev_date, u.priority
 	  from [Update_Schedule] us
 	  join
 	  [Updates] u
 	  on u.update_id = us.update_id and weekday = $wd
+	  
 	  left join
 	  [Update_DIS] d
 	  on d.update_id = u.update_id 
@@ -385,7 +389,35 @@ sub compile_table {
       $filter
       order by sched_epoch asc, name asc
 	";
-
+	
+		#my $filter_sched = "and (us.weekday = $current_wd)";
+	my $select_schedule2 = "
+		select distinct us.sched_id, us.update_id, us.sched_epoch, u.name, u.is_legacy, d.feed_id, u.prev_date, u.priority
+		from 
+			Update_Schedule us
+			join
+			Updates u
+			on u.update_id = us.update_id
+			join
+			Update_DIS d
+			on
+			d.update_id = us.update_id
+		and u.update_id = d.update_id
+		and d.feed_id NOT LIKE 'FIEJV%'
+      	and d.feed_id NOT LIKE 'RDC%'
+      		
+	  	 
+		where
+      	
+		
+		--and u.is_legacy = 0
+		us.enabled = 1
+		
+		$filter_sched
+		$filter
+		order by sched_epoch asc, name asc
+		";
+	#warn $select_schedule2 and exit;
 	#warn $select_schedule;
 	$filter = '';
 	if ( $prev_search && $search_type eq 'FEED_DATE' ) {
@@ -400,7 +432,7 @@ sub compile_table {
 
 	#warn $select_history and die;
 	#say 'executing sched query';
-	my $sched_aref = $dbh_sched->selectall_arrayref($select_schedule);
+	my $sched_aref = $dbh_sched->selectall_arrayref($select_schedule2);
 
 	#say 'iterating...';
 	my $row_count = 0;
@@ -422,17 +454,22 @@ sub compile_table {
 		if ($is_legacy) {
 			$sched_id--;
 		}
+#		else {
+#			my $sched_feed_date = sched_id2feed_date($sched_id,$dbdate);
+#			$filter .= " and feed_date = '$sched_feed_date'"
+#		}
 		my $select_history = "
 		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum
 		from [Update_History]
 		where
 		sched_id = $sched_id
 		and feed_date <= '$dbdate'
-		and abs(datediff(dd, '$dbdate', feed_date)) < 3
+		and abs(datediff(dd, '$dbdate', feed_date)) < 7
 		$filter
 		order by hist_id desc
 	";
 	#warn $select_history;
+	#exit;
 		#	open LOG, '>>test.log';
 		#	say LOG $select_history;
 		#	close LOG;

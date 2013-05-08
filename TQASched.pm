@@ -34,6 +34,8 @@ our @EXPORT = qw(
 	legacy_feed_date
 	code_weekday
 	time2offset
+	shift_wd
+	sched_id2feed_date
 	now_offset
 	sched_epoch
 	format_dateparts
@@ -2210,6 +2212,7 @@ sub refresh_dis {
 			my ( $feed_id,  $name,      $offset,
 				 $sched_id, $update_id, $prev_date, $sched_wd
 			) = @{$update_aref};
+			$prev_date ||= 0;
 			dsay( $feed_id,  $name,      $offset,
 				  $sched_id, $update_id, $prev_date );
 			$current_wd = $sched_wd;
@@ -2224,7 +2227,7 @@ sub refresh_dis {
 	# skip for debugging purposes now
 				next;
 			}
-			say "\n$name - $update_id - $sched_id - $current_wd";
+			say "\n$name - $update_id - $sched_id - $current_wd ($prev_date)";
 			$first_run = pause_mode($first_run) if $pause_mode;
 
 			# get build number (optional) from feed name
@@ -2301,6 +2304,9 @@ sub refresh_dis {
 #						}
 						
 					}
+#					elsif ($wd_prev_flag) {
+#						my $sched_epoch = sched_epoch($offset, $target_date_string);
+#					}
 				}
 
 				#					my	( $nsched_id, $noffset ) = next_sched_id($sched_id);
@@ -2312,29 +2318,29 @@ sub refresh_dis {
 			
 			#my $sched_feed_date = $prev_date ? sched_id2feed_date($sched_id, $target_date_string, -1) : $target_date_string;
 			my $sched_feed_date = $target_date_string;
-			if ($prev_date && !$build_num && $current_wd > 1) {
-				#if ( $current_wd > 1  || $feed_id =~ m/^RKDGF/ ) {
-				#if ( $feed_id  =~ m//
-					$sched_feed_date = date_math(-1, $target_date_string);
-					say "\tsched_feed_date: $sched_feed_date changed from $target_date_string";
-				#} 
-			# && $current_wd > 1) {
-				
-			}
-			elsif ($prev_date && !$build_num && is_weekend($current_wd)) {
-				if ($feed_id =~ m/^RKDGF/ ) {
-					say "\tRKDGF non-enum weekend feed_date";
-					$sched_feed_date = sched_id2feed_date($sched_id, $sched_feed_date);
-				}
-				else {
-					say "\tother non-enum weekend feed_date";
-					#$sched_feed_date = date_math(-1, $target_date_string);
-				}
-				# rewind RKDGF weekend updates an extra time
-#				if ( is_weekend($current_wd) && ($feed_id =~ m/^RKDGF/)) {
-#					$sched_feed_date = date_math(-1, $sched_feed_date); 
+#			if ($prev_date && !$build_num && $current_wd > 1) {
+#				#if ( $current_wd > 1  || $feed_id =~ m/^RKDGF/ ) {
+#				#if ( $feed_id  =~ m//
+#					$sched_feed_date = date_math(-1, $target_date_string);
+#					say "\tsched_feed_date: $sched_feed_date changed from $target_date_string";
+#				#} 
+#			# && $current_wd > 1) {
+#				
+#			}
+#			if ($prev_date && !$build_num && is_weekend($current_wd)) {
+#				if ($feed_id =~ m/^RKDGF/ ) {
+#					say "\tRKDGF non-enum weekend feed_date";
+#					$sched_feed_date = sched_id2feed_date($sched_id, $sched_feed_date);
 #				}
-			}
+#				else {
+#					say "\tother non-enum weekend feed_date";
+#					#$sched_feed_date = date_math(-1, $target_date_string);
+#				}
+#				# rewind RKDGF weekend updates an extra time
+##				if ( is_weekend($current_wd) && ($feed_id =~ m/^RKDGF/)) {
+##					$sched_feed_date = date_math(-1, $sched_feed_date); 
+##				}
+#			}
 #			elsif ( $prev_date && !$build_num && $current_wd <= 1) {
 #				$sched_feed_date = 
 #			}
@@ -2360,11 +2366,13 @@ sub refresh_dis {
 
 			# rewind Data Explorers (DXL_Daily) an extra time
 			# TODO figure out DXL
-#			if ( $update_id == 156 && $current_wd > 1 ) {
-#				say "\tlogic for DXL";
-#				$sched_feed_date = date_math( -1, $sched_feed_date );
-#				$feed_date_filter = "and feeddate = '$sched_feed_date'";
-#			}
+			#if ( $update_id == 156 || $update_id == 432 || $update_id == 433 || $update_id == 434 || $update_id == 431 || $update_id == 184 || $update_id == 189 || $update_id == 272 || $update_id == 282 ) {
+			if ( $update_id == 156 || ($update_id == 272 && $current_wd == 2) || ($feed_id =~ m/^RKDGF/ && $current_wd != 0 ) ) { 
+			#($feed_id =~ m/^RKDGF/ && $current_wd != 2)) {	
+				say "\tspecial case rewind";
+				$sched_feed_date = date_math( -1, $sched_feed_date );
+				$feed_date_filter = "and feeddate = '$sched_feed_date'";
+			}
 			# special case for early RKD SigDev feeds
 #			elsif ( $feed_id eq 'RKDGF_SigDev_I') {
 #				$sched_feed_date = date_math( 1, $sched_feed_date );
@@ -2380,6 +2388,13 @@ sub refresh_dis {
 # gets all needed info for non-enumerated feeds
 # gets DIS server (sender) for enumerated feeds to hit for build-specific details
 # TODO cannot simply take newest, need to check feed date
+		my ( $status,  $exec_end,  $fd,         $fn,
+				 $sender,  $trans_num, $build_time, $feed_date,
+				 $seq_num, $filesize
+			);
+		my $working_date = $sched_feed_date;
+		# loop until last feed date
+		until ($trans_num) {
 			my $transactions = "
 			select top 1 Status, BuildTime, FileDate, FileNum, Sender, TransactionNumber, ProcessTime, FeedDate, SeqNum, filesize 
 			from [TQALic].dbo.[PackageQueue] 
@@ -2392,7 +2407,7 @@ sub refresh_dis {
 
  #say $transactions;
  #--	and feeddate = DateAdd(dd, $feed_date_rewind, '${tyear}${tmonth}${tday}')
-			my ( $status,  $exec_end,  $fd,         $fn,
+			( $status,  $exec_end,  $fd,         $fn,
 				 $sender,  $trans_num, $build_time, $feed_date,
 				 $seq_num, $filesize
 			) = $dbh_prod1->selectrow_array($transactions);
@@ -2401,13 +2416,16 @@ sub refresh_dis {
 				  $sender,  $trans_num, $build_time, $feed_date,
 				  $seq_num, $filesize
 			);
-			if (defined $status && $status == 0) {
-				say "\tAUH currently processing, waiting";
-				next;
-			}
+			$working_date = date_math(-1, $working_date);
+			$feed_date_filter = " and feeddate = '$working_date'";
+		}
+#			if (defined $status && $status == 0) {
+#				say "\tAUH currently processing, waiting";
+#				next;
+#			}
 			# swap process time for build time if not null
 			if ($build_time !~ m/^1900/) {
-				say "\tadjusting end time from build: $exec_end to process: $build_time";
+				#say "\tadjusting end time from build: $exec_end to process: $build_time";
 				$exec_end = $build_time;
 			}
 			

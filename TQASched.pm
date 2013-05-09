@@ -37,6 +37,7 @@ our @EXPORT = qw(
 	shift_wd
 	sched_id2feed_date
 	now_offset
+	prev_sched_offset
 	sched_epoch
 	format_dateparts
 	refresh_handles
@@ -2132,6 +2133,26 @@ sub update_scheduling {
 	my $sth_update = $dbh_sched->prepare($update_sched_query);
 }
 
+# check if update_id is stored for current sched_id and date
+sub is_stored {
+	my ($sched_id, $date_string) = @_;
+	
+	my $feed_date = sched_id2feed_date($sched_id, $date_string, -1);
+	
+	my $select_query = "
+		select hist_id from update_history
+		where 
+		sched_id = $sched_id
+		and feed_date = '$feed_date' 
+	";
+	dsay $select_query;
+	
+	my ($hist_id) = $dbh_sched->selectrow_array($select_query);
+	
+	return $hist_id;
+		
+}
+
 # poll auh metadata for DIS feed statuses
 sub refresh_dis {
 
@@ -2219,7 +2240,7 @@ sub refresh_dis {
 			my $wd_prev_flag = $current_wd != $old_current_wd;
 			# handle annoying FIEJV feeds not being enumerated
 			# TODO fix special case for FIEJV
-
+			
 			if ( $feed_id =~ m/fiejv|rdc/i ) {
 				dsay "$name: skipping";
 
@@ -2227,6 +2248,27 @@ sub refresh_dis {
 	# skip for debugging purposes now
 				next;
 			}
+			
+			if (!defined $tupdate_id) {
+				if (!is_stored($sched_id, $target_date_string) ) {
+					say "\ttargetting $update_id";
+					refresh_dis(
+						{
+							year => $tyear,
+							month => $tmonth,
+							day => $tday,
+							update_id => $update_id,
+						}
+					);
+				}
+				next;
+			}
+			else {
+				say "\ttarget acquired $tupdate_id";
+			}
+			
+
+			
 			say "\n$name - $update_id - $sched_id - $current_wd ($prev_date)";
 			$first_run = pause_mode($first_run) if $pause_mode;
 
@@ -2367,7 +2409,7 @@ sub refresh_dis {
 			# rewind Data Explorers (DXL_Daily) an extra time
 			# TODO figure out DXL
 			#if ( $update_id == 156 || $update_id == 432 || $update_id == 433 || $update_id == 434 || $update_id == 431 || $update_id == 184 || $update_id == 189 || $update_id == 272 || $update_id == 282 ) {
-			if ( $update_id == 156 || ($update_id == 272 && $current_wd == 2) || ($feed_id =~ m/^RKDGF/ && $current_wd != 0 ) ) { 
+			if ( ($update_id == 156 && $current_wd == 1) || ($update_id == 272 && $current_wd == 2) || ($feed_id =~ m/^RKDGF/ && $current_wd != 0 ) ) { 
 			#($feed_id =~ m/^RKDGF/ && $current_wd != 2)) {	
 				say "\tspecial case rewind";
 				$sched_feed_date = date_math( -1, $sched_feed_date );
@@ -2401,6 +2443,7 @@ sub refresh_dis {
 			with (NOLOCK)
 			where TaskReference LIKE '%$feed_id%'
 			$feed_date_filter
+			and status != 0
 			order by SeqNum desc
 		";
 			dsay $transactions;
@@ -2447,6 +2490,10 @@ sub refresh_dis {
 				);
 				next;
 			}
+			# AUH not finished with non-enum
+#			elsif (defined $status && !$status && !$build_num) {
+#				say "\tAUH not finished processing";
+#			} 
 
 			#my $backdate_updates;
 
@@ -2512,6 +2559,7 @@ sub refresh_dis {
 				where BuildNumber = $build_num
 				and DataFeedId = '$feed_id'
 				$feed_date_filter
+				and status != 0
 				order by ExecutionDateTime desc
 				--order by FeedDate desc
 			";
@@ -2549,6 +2597,7 @@ sub refresh_dis {
 					where BuildNumber = $build_num
 					and DataFeedId = '$feed_id'
 					$feed_date_filter
+					and status != 0
 					order by ExecutionDateTime desc";
 
 					#					( $trans_num, $dis_feed_date, $dis_feed_status )
@@ -2584,7 +2633,7 @@ sub refresh_dis {
 					with (NOLOCK)
 					where TaskReference LIKE '%$feed_id%'
 					and TransactionNumber = $trans_num
-	
+					and status != 0
 					--and DateDiff(dd, [BuildTime], GETUTCDATE()) < 1.1
 					order by BuildTime desc
 				";
@@ -2900,12 +2949,13 @@ sub refresh_legacy {
 			}
 
 			my $sched_query = "
-				select sched_epoch, sched_id 
-				from Update_Schedule us
-				where update_id = $update_id
+				select sched_epoch, sched_id, prev_date 
+				from Update_Schedule us, updates u
+				where u.update_id = $update_id
 				and weekday = $weekday_code
+				and u.update_id = us.update_id
 			";
-			my ( $sched_offset, $sched_id )
+			my ( $sched_offset, $sched_id, $prev_date )
 				= $dbh_sched->selectrow_array($sched_query);
 
 			unless ( defined $sched_offset ) {
@@ -2978,7 +3028,7 @@ sub refresh_legacy {
 			#my $cmp_result = comp_offsets( $trans_offset, $sched_offset );
 
 			# adjust feed date according to weekday
-			$feed_date = legacy_feed_date( $weekday_code, $feed_date );
+			$feed_date = legacy_feed_date( $weekday_code, $feed_date, $prev_date );
 
 			# if it's within an hour of the scheduled time, mark as on time
 			# could also be early
@@ -3077,7 +3127,8 @@ sub pause_mode {
 
 # calculate a particular DoW's feed date
 sub legacy_feed_date {
-	my ( $excel_wd, $curr_date ) = @_;
+	my ( $excel_wd, $curr_date, $prev_date ) = @_;
+#	$curr_date = date_math(-1, $curr_date) if $prev_date;
 	my $curr_wd = get_wd($curr_date);
 
 	#say "curr wd: $curr_wd excel wd: $excel_wd";
@@ -3112,7 +3163,7 @@ sub legacy_feed_date {
 	#	}
 
 	#say "delta: $delta";
-
+	
 	return date_math( $delta, $curr_date );
 }
 
@@ -3144,6 +3195,7 @@ sub lookup_update {
 		from [TQALic].[dbo].[PackageQueue]
 		where FileDate = '$filedate'
 		and FileNum= '$filenum'
+		and status != 0
 		$feed_id
 	";
 	my ( $fdfn_ts, $trans_num, $seq_num )

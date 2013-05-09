@@ -451,8 +451,9 @@ sub compile_table {
 		#			next;
 		#		}
 
-		if ($is_legacy) {
-			$sched_id--;
+		if ($is_legacy && $wd == 1 && $prev_date) {
+			my ($psched_id, $poffset) = prev_sched_offset($sched_id);
+			$sched_id = $psched_id if $psched_id;
 		}
 #		else {
 #			my $sched_feed_date = sched_id2feed_date($sched_id,$dbdate);

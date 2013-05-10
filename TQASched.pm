@@ -2424,10 +2424,14 @@ sub refresh_dis {
 			# rewind Data Explorers (DXL_Daily) an extra time
 			# TODO figure out DXL
 			#if ( $update_id == 156 || $update_id == 432 || $update_id == 433 || $update_id == 434 || $update_id == 431 || $update_id == 184 || $update_id == 189 || $update_id == 272 || $update_id == 282 ) {
-			if ( ($update_id == 156 && $current_wd == 1) || ($update_id == 272 && $current_wd == 2) || ($feed_id =~ m/^RKDGF/ && $current_wd != 0 ) ) { 
+			if ( ($update_id == 156) || ($update_id == 272 && $current_wd == 2) || ($feed_id =~ m/^RKDGF/ && $current_wd != 0 ) ) { 
 			#($feed_id =~ m/^RKDGF/ && $current_wd != 2)) {	
 				say "\tspecial case rewind";
-				$sched_feed_date = date_math( -1, $sched_feed_date );
+				my $rewind_days = -1;
+				if ($update_id == 156) {
+					$rewind_days = -2;
+				}
+				$sched_feed_date = date_math( $rewind_days, $sched_feed_date );
 				$feed_date_filter = "and feeddate = '$sched_feed_date'";
 			}
 			# special case for early RKD SigDev feeds

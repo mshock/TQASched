@@ -97,6 +97,13 @@ sub define_defaults {
 							  ALIAS   => 'lookahead',
 		},
 
+		# look at the previous day first before attempting to store current for prev_date feeds
+		daemon_lookbehind => {
+			DEFAULT => 1,
+			ARGS => '!',
+			ALIAS => 'lookbehind',
+		},
+
 		# wait for keypress after each update processed
 		# various commands available
 		# Q => quit

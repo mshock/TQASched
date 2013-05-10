@@ -2252,6 +2252,20 @@ sub refresh_dis {
 			if (!defined $tupdate_id) {
 				if (!is_stored($sched_id, $target_date_string) ) {
 					say "\ttargetting $update_id";
+					if ($cfg->lookbehind) {
+					# && defined $prev_date && $prev_date) {
+						say "\tlookbehind";
+						my ($pyear, $pmonth, $pday) = parse_filedate(date_math(-1, $target_date_string));
+						refresh_dis(
+						{
+							year => $pyear,
+							month => $pmonth,
+							day => $pday,
+							update_id => $update_id,
+						}
+					);	
+					}
+					#else {
 					refresh_dis(
 						{
 							year => $tyear,
@@ -2260,6 +2274,7 @@ sub refresh_dis {
 							update_id => $update_id,
 						}
 					);
+				#	}
 				}
 				next;
 			}

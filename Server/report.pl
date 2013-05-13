@@ -451,7 +451,7 @@ sub compile_table {
 		#			next;
 		#		}
 
-		if ($is_legacy && $wd == 1 && $prev_date) {
+		if ($is_legacy && $wd == 0 && $prev_date) {
 			my ($psched_id, $poffset) = prev_sched_offset($sched_id);
 			$sched_id = $psched_id if $psched_id;
 		}
@@ -459,17 +459,22 @@ sub compile_table {
 #			my $sched_feed_date = sched_id2feed_date($sched_id,$dbdate);
 #			$filter .= " and feed_date = '$sched_feed_date'"
 #		}
+	my $last_week_date = date_math(-7, $dbdate);
 		my $select_history = "
 		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum
 		from [Update_History]
 		where
 		sched_id = $sched_id
 		and feed_date <= '$dbdate'
-		and abs(datediff(dd, '$dbdate', feed_date)) < 7
+		and hist_id  > 
+			(select top 1 hist_id from update_history 
+			where sched_id = $sched_id and feed_date < '$last_week_date'
+			order by hist_id desc)
+		--or abs(datediff(dd, '$dbdate', feed_date)) < 7)
 		$filter
 		order by hist_id desc
 	";
-	#warn $select_history;
+	#warn $select_history and exit if $update_id == 312;
 	#exit;
 		#	open LOG, '>>test.log';
 		#	say LOG $select_history;

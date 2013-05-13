@@ -110,7 +110,9 @@ say 'initializing and nurturing a fresh crop of database handles...';
 say '	*dial-up modem screech* (apologies, running old tech)';
 
 # refresh those global handles for the first time
-my ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
+my ( $dbh_sched, 
+#$dbh_auh,  
+$dbh_prod1, $dbh_dis1,
 	 $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5
 ) = refresh_handles();
 
@@ -391,7 +393,7 @@ sub refresh_handles {
 	if ( scalar @selected ) {
 		for (@selected) {
 			when (m/sched/i)    { push @refresh_list, $sched_db }
-			when (m/auh/i)      { push @refresh_list, $auh_db }
+			#when (m/auh/i)      { push @refresh_list, $auh_db }
 			when (m/prod1/i)    { push @refresh_list, $prod1_db }
 			when (m/dis1/i)     { push @refresh_list, $dis1_db }
 			when (m/dis2/i)     { push @refresh_list, $dis2_db }
@@ -418,11 +420,15 @@ sub refresh_handles {
 
 	# otherwise refresh all handles
 	else {
-		@refresh_list = ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
+		@refresh_list = ( $sched_db, 
+		#$auh_db,
+		  $prod1_db, $dis1_db,
 						  $dis2_db,  $dis3_db, $dis4_db,  $dis5_db );
 	}
 
-	return ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
+	return ( $dbh_sched, 
+	#$dbh_auh,  
+	$dbh_prod1, $dbh_dis1,
 			 $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5
 	) = map { init_handle($_) } @refresh_list;
 
@@ -432,7 +438,9 @@ sub refresh_handles {
 sub check_handles {
 	my $self_check = shift;
 	my $undefs     = 0;
-	for ( $dbh_sched, $dbh_auh,  $dbh_prod1, $dbh_dis1,
+	for ( $dbh_sched,
+	 #$dbh_auh, 
+	  $dbh_prod1, $dbh_dis1,
 		  $dbh_dis2,  $dbh_dis3, $dbh_dis4,  $dbh_dis5 )
 	{
 		$undefs++ unless defined;

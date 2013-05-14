@@ -405,14 +405,9 @@ sub compile_table {
 		and u.update_id = d.update_id
 		and d.feed_id NOT LIKE 'FIEJV%'
       	and d.feed_id NOT LIKE 'RDC%'
-      		
-	  	 
 		where
-      	
-		
 		--and u.is_legacy = 0
 		us.enabled = 1
-		
 		$filter_sched
 		$filter
 		order by sched_epoch asc, name asc

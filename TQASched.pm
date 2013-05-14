@@ -2190,6 +2190,8 @@ sub refresh_dis {
 		my $next_wd = shift_wd($current_wd, 1);
 		#my $filter_sched = "and (us.weekday = $current_wd)";
 		my $filter_sched = " and ( (us.weekday = $current_wd and u.prev_date != 1) or (us.weekday = $next_wd and u.prev_date = 1 ))";
+		#my $filter_sched = " and ( (us.weekday = $current_wd) or (us.weekday = $next_wd and u.prev_date = 1 ))";
+		
 #		if (defined $prev_date && $prev_date == 1) {
 #			$filter_sched = sprintf 'and us.weekday = %u', shift_wd($current_wd,1);
 #		}
@@ -2342,7 +2344,7 @@ sub refresh_dis {
 					if (defined $psched_id && $sched_id != $psched_id && !$wd_prev_flag) {
 						say "\tmoved sched_id $sched_id to $psched_id offset: $offset to $poffset";
 						my $rollover = $sched_id > $psched_id;
-						$sched_id = $psched_id;
+						
 						
 						# RKD special case, needs to use the 2 offsets in the future
 #						if ($update_id == 432 || $update_id == 433) {
@@ -2359,11 +2361,16 @@ sub refresh_dis {
 #						}
 #						# everyone else gets immediate next offset
 #						else {
-						if (!$rollover) {
-							$offset = $poffset;
-							
+						if ($rollover && $current_wd == 6 && $prev_date) {
+							say "\tweek rollover detected on sunday, no sched_id or offset overwrite";
 						}
+						elsif (!$rollover) {
+							$offset = $poffset;
+							$sched_id = $psched_id;
+						}
+						
 						else {
+							$sched_id = $psched_id;
 							say "\tweek rollover detected, no offset overwrite";
 						}	
 #						}
@@ -2436,7 +2443,11 @@ sub refresh_dis {
 			#($feed_id =~ m/^RKDGF/ && $current_wd != 2)) {	
 				say "\tspecial case rewind";
 				my $rewind_days = -1;
-				if ($update_id == 156) {
+				# rewind to proper date for DXL on monday
+				if ($update_id == 156 && $current_wd == 1) {
+					$rewind_days = -4;
+				}
+				elsif ($update_id == 156) {
 					$rewind_days = -2;
 				}
 				$sched_feed_date = date_math( $rewind_days, $sched_feed_date );

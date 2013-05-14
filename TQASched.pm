@@ -3016,9 +3016,12 @@ sub refresh_legacy {
 			}
 
 			say "\t$name\t$update_id";
-			my $status;
 			my ( $trans_ts, $trans_offset, $trans_num, $seq_num )
 				= ( 0, -1, -1, 0 );
+			
+			
+			my $status;
+			
 			if (    !defined $row_data->{filedate}
 				 || !defined $row_data->{filenum} )
 			{
@@ -3051,6 +3054,12 @@ sub refresh_legacy {
 				$row_data->{filenum}  = 'NULL';
 			}
 
+#			if ($weekday_code == 1) {
+#				say "\t\tprev_date legacy feed, getting next sched_id and offset";
+#				my $temp_offset;
+#				($sched_id, $temp_offset) = prev_sched_offset($sched_id);
+#			}
+
 			# compare transaction execution time to schedule offset
 			# GMT now		# GMT sched
 			my $cmp_result;
@@ -3067,6 +3076,8 @@ sub refresh_legacy {
 
 			# adjust feed date according to weekday
 			$feed_date = legacy_feed_date( $weekday_code, $feed_date, $prev_date );
+			
+
 
 			# if it's within an hour of the scheduled time, mark as on time
 			# could also be early

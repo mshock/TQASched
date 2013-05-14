@@ -454,22 +454,29 @@ sub compile_table {
 #			my $sched_feed_date = sched_id2feed_date($sched_id,$dbdate);
 #			$filter .= " and feed_date = '$sched_feed_date'"
 #		}
+	
 	my $last_week_date = date_math(-7, $dbdate);
+	my $dis_filter = '';
+	
+	if (!$is_legacy) {
+		$dis_filter = "
+		and hist_id  > 
+			(select top 1 hist_id from update_history 
+			where sched_id = $sched_id and feed_date < '$last_week_date'
+			order by hist_id desc)";
+	}
 		my $select_history = "
 		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum
 		from [Update_History]
 		where
 		sched_id = $sched_id
 		and feed_date <= '$dbdate'
-		and hist_id  > 
-			(select top 1 hist_id from update_history 
-			where sched_id = $sched_id and feed_date < '$last_week_date'
-			order by hist_id desc)
+		$dis_filter
 		--or abs(datediff(dd, '$dbdate', feed_date)) < 7)
 		$filter
 		order by hist_id desc
 	";
-	#warn $select_history and exit if $update_id == 312;
+	#warn $select_history and exit if $update_id == 406;
 	#exit;
 		#	open LOG, '>>test.log';
 		#	say LOG $select_history;

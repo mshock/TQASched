@@ -81,6 +81,10 @@ body { margin: 0; font-family: Calibri; background-color:#DBD7D5;}
 
 .empty_even {background: #33CC33}
 
+.special_odd {background: #80B1D2}
+
+.special_even {background: #0063A6}
+
 tr.skipborder1 td:first-child { border-left: 5px solid #008000;  }
 tr.skipborder1 td:last-child { border-right: 5px solid #008000;  }
 tr.skipborder2 td {

@@ -675,7 +675,7 @@ sub extract_row_daemon {
 
 			# comment
 			when (/^7$/) {
-				$row_href->{comment} = $value;
+				$row_href->{comments} = $value;
 			}
 
 			# outside of parsing scope
@@ -718,10 +718,12 @@ sub extract_row_daemon {
 			when (/^5$/) {
 				$row_href->{filenum} = $value;
 			}
+
 			# special update name
 			when (/^6$/) {
 				$row_href->{special} = $value;
 			}
+
 			# ID
 			when (/^7$/) {
 				$row_href->{id} = $value;
@@ -729,7 +731,7 @@ sub extract_row_daemon {
 
 			# comment
 			when (/^8$/) {
-				$row_href->{comment} = $value;
+				$row_href->{comments} = $value;
 			}
 
 			# outside of parsing scope
@@ -1203,17 +1205,18 @@ sub update_history {
 	my $hashref = shift;
 	my ( $update_id, $sched_id, $trans_offset, $late_q,
 		 $fd_q,      $fn_q,     $trans_num,    $is_legacy,
-		 $feed_date, $seq_num, $ops_id, $comments
+		 $feed_date, $seq_num,  $ops_id,       $comments
 		)
 		= ( $hashref->{update_id},    $hashref->{sched_id},
 			$hashref->{trans_offset}, $hashref->{late},
 			$hashref->{filedate},     $hashref->{filenum},
 			$hashref->{transnum},     $hashref->{is_legacy},
-			$hashref->{feed_date},    $hashref->{seq_num}, $hashref->{id}, $hashref->{comments}
+			$hashref->{feed_date},    $hashref->{seq_num},
+			$hashref->{id},           $hashref->{comments}
 		);
 	$is_legacy ||= 0;
-	$ops_id ||= 'NULL';
-	$comments ||= 'NULL';
+	$ops_id   = $ops_id   ? "'$ops_id'"   : 'NULL';
+	$comments = $comments ? "'$comments'" : 'NULL';
 
 	( $fd_q, $fn_q )
 		= map { !defined $_ || $_ =~ /undef/i ? 'NULL' : $_ }
@@ -2336,7 +2339,7 @@ sub refresh_dis {
 
 			if ( !defined $tupdate_id ) {
 				if ( !is_stored( $sched_id, $target_date_string ) ) {
-					say "\ttargetting $update_id";
+					say "\ttargeting $update_id";
 					if ( $cfg->lookbehind ) {
 
 						# && defined $prev_date && $prev_date) {
@@ -3018,7 +3021,7 @@ sub refresh_legacy {
 
 		# skip if this is an unrecognized worksheet
 		say "\tunable to parse weekday, skipping" and next
-			if $weekday_code == -1;
+			if !$special_flag && $weekday_code == -1;
 
 		# find the row and column bounds for iteration
 		my ( $col_min, $col_max ) = $worksheet->col_range();
@@ -3030,7 +3033,8 @@ sub refresh_legacy {
 		# iterate over each row and store scheduling data
 		for ( my $row = $row_min; $row <= $row_max; $row++ ) {
 
-			next if $row <= 1;
+			next if $row <= 1 && !$special_flag;
+			next if $row < 1  && $special_flag;
 			if ($blank_flag) {
 				$blank_flag = 0;
 			}
@@ -3062,9 +3066,9 @@ sub refresh_legacy {
 			}
 
 			# do special UPD processing here
-			if ($special_flag && exists $row_data->{ingestion}) {
+			if ( $special_flag && exists $row_data->{ingestion} ) {
 				store_legacy_special($row_data);
-				next;	
+				next;
 			}
 
 			# skip unless update name filled in
@@ -3075,8 +3079,6 @@ sub refresh_legacy {
 				dsay "blank row, skip";
 				next;
 			}
-
-			
 
 			my $name = $row_data->{update};
 
@@ -3220,6 +3222,8 @@ sub refresh_legacy {
 								  is_legacy    => 1,
 								  feed_date    => $feed_date,
 								  seq_num      => $seq_num,
+								  id           => $row_data->{id},
+								  comments     => $row_data->{comments},
 								}
 				);
 			}
@@ -3239,6 +3243,8 @@ sub refresh_legacy {
 								  is_legacy    => 1,
 								  feed_date    => $feed_date,
 								  seq_num      => $seq_num,
+								  id           => $row_data->{id},
+								  comments     => $row_data->{comments},
 								}
 				);
 			}
@@ -3257,6 +3263,8 @@ sub refresh_legacy {
 								  filenum      => 'NULL',
 								  is_legacy    => 1,
 								  feed_date    => $feed_date,
+								  id           => $row_data->{id},
+								  comments     => $row_data->{comments},
 								}
 				);
 			}
@@ -3272,7 +3280,96 @@ sub refresh_legacy {
 # store an old-format legacy row from href
 sub store_legacy_special {
 	my $row_href = shift;
+	my ( $ingestion, $tt_no,   $trans_num, $task_ref, $filedate,
+		 $filenum,   $special, $ops_id,    $comments )
+		= map { $row_href->{$_} }
+		qw(ingestion tt_no trans_num task_ref filedate filenum special id comments);
+	unless ($special) {
+		say 'no name for this special upd, skipping';
+		return;
+	}
+
+	my ( $trans_ts, $seq_num );
+	( $trans_ts, $trans_num, $seq_num )
+		= lookup_update( $row_href->{filedate}, $row_href->{filenum},
+						 $task_ref );
+	$trans_ts  ||= 0;
+	$trans_num ||= 0;
+	$seq_num   ||= 0;
+
+	$special  =~ s/'//g;
+	$comments =~ s/'//g;
+
+	my $feed_date = special_feed_date( $filedate, $filenum );
+
+	# insert/get update_id, updates record for special
+	my $update_id = get_update_id($special);
+	unless ($update_id) {
+		my $insert_new_special = "
+			insert into updates values
+			(
+				'$special',
+				0,
+				0,
+				0
+			)
+		";
+		$dbh_sched->do($insert_new_special);
+		$update_id = get_update_id($special);
+		unless ($update_id) {
+			say "\tfailed to create special update $special";
+			return;
+		}
+	}
+
+	my $insert_query = "
+		insert into update_history values
+		($update_id,-1, '$trans_ts', $filedate, $filenum, 
+		GETUTCDATE(), 'S', $trans_num, '$feed_date', 
+		$seq_num, '$ops_id', '$comments') 
+	";
+
+	if ( !legacy_special_dup( $update_id, $filenum, $filedate) ) {
+
+		#say $insert_query;
+		say "\tinserting $special";
+		$dbh_sched->do($insert_query);
+	}
+	else {
+		say "\talready stored $special";
+		return;
+	}
+
+}
+
+# check if this a duplicate special update record
+sub legacy_special_dup {
+	my ($update_id, $filenum, $filedate) = @_;
 	
+	my $select_query = "
+		select hist_id from update_history where update_id = $update_id
+		and filenum = $filenum and filedate = $filedate  
+	";
+	my ($hist_id) = $dbh_sched->selectrow_array($select_query);
+	return $hist_id;
+}
+
+# get theoretical feed date for special UPD, for displaying in the correct day/week on report
+sub special_feed_date {
+	my ( $filedate, $filenum ) = @_;
+	my $select_fdfn_query = "
+		select ProcessTime
+		from [TQALic].[dbo].[PackageQueue]
+		where FileDate = '$filedate'
+		and FileNum= '$filenum'
+		and status != 0
+	";
+	my ($fdfn_ts) = ( $dbh_prod1->selectrow_array($select_fdfn_query) );
+
+	$fdfn_ts =~ s/\s.*//;
+
+	return $fdfn_ts if defined $fdfn_ts;
+	return;
 }
 
 # insert a user input pause with options for stepping through loops

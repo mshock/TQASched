@@ -407,11 +407,27 @@ sub compile_table {
       	and d.feed_id NOT LIKE 'RDC%'
 		where
 		--and u.is_legacy = 0
+		
 		us.enabled = 1
 		$filter_sched
 		$filter
+		
+	
 		order by sched_epoch asc, name asc
 		";
+		
+	my $select_specials = 
+	"select sched_id, uh.update_id, 0, name, is_legacy, 'N/A', prev_date, priority, ops_id, comments
+	from update_history uh, updates u
+	where 
+	uh.update_id = u.update_id
+	and
+		
+			feed_date = '$dbdate'
+			and late = 'S'
+		
+	";
+	#warn $select_specials and exit;
 	#warn $select_schedule2 and exit;
 	#warn $select_schedule;
 	$filter = '';
@@ -428,16 +444,16 @@ sub compile_table {
 	#warn $select_history and die;
 	#say 'executing sched query';
 	my $sched_aref = $dbh_sched->selectall_arrayref($select_schedule2);
-
+	my $specials_aref = $dbh_sched->selectall_arrayref($select_specials);
 	#say 'iterating...';
 	my $row_count = 0;
 	my %display_rows;
 	my $border_prev;
 	my ( $border_prev1, $border_prev2 ) = ( 0, 0 );
-	for my $row_aref ( @{$sched_aref} ) {
+	for my $row_aref ( @{$sched_aref}, @{$specials_aref} ) {
 
 		my ( $sched_id, $update_id, $sched_offset, $name, $is_legacy,
-			 $feed_id, $prev_date, $priority )
+			 $feed_id, $prev_date, $priority, $ops_id, $comments )
 			= @{$row_aref};
 
 		#		my $feed_date = sched_id2feed_date($sched_id, $dbdate);
@@ -472,20 +488,31 @@ sub compile_table {
 		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum
 		from [Update_History]
 		where
-		sched_id = $sched_id
-		and feed_date <= '$dbdate'
-		$dis_filter
-		$filter
+		
+			sched_id = $sched_id
+			and feed_date <= '$dbdate'
+			$dis_filter
+			$filter
+		--	and late != 'S'
+		
+		
 		order by hist_id desc
 	";
-	#warn $select_history and exit if $is_legacy;# if $update_id == 406;
+	my $select_special = "
+		select hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum 
+		from update_history
+		where late = 'S'
+		and feed_date = '$dbdate'
+		order by hist_id desc
+	";
+	#warn $select_special and exit if $sched_id == -1;# if $update_id == 406;
 	#exit;
 		#	open LOG, '>>test.log';
 		#	say LOG $select_history;
 		#	close LOG;
 		#
 		#say $select_history if $sched_id == 271;
-		my $hist_query = $dbh_sched->prepare($select_history);
+		my $hist_query = $dbh_sched->prepare($sched_id == -1 ? $select_special : $select_history);
 		$hist_query->execute();
 
 		my ( $hist_id,   $hist_offset, $filedate,
@@ -522,7 +549,7 @@ sub compile_table {
 		( $border_class1, $border_class2, $border_prev )
 			= format_border( $row_class, $border_prev );
 
-		my $tr_title      = get_title($row_class);
+		my $tr_title      = get_title($row_class, $ops_id, $comments);
 		my $extra_classes = '';
 
 #		$tr_title .= defined $seq_num
@@ -642,9 +669,18 @@ sub row_info {
 	my $sched_time = offset2time( $sched_offset, 1 );
 
 	my ( $status, $daemon_ts, $recvd_time, $update );
-
-# history record exists, the feed date is not equal to one week ago and it isn't a skipped update
-	if (    defined $hist_id
+	
+	# special updates are processed first
+	if ( $late eq 'S' )
+	{
+		#warn $filenum and exit;
+		$status = 'special';
+		$update     = $filedate ? "$filedate-$filenum" : 'N/A';
+		$daemon_ts  = $hist_ts;
+	}
+	# history record exists, the feed date is not equal to one week ago and it isn't a skipped update
+	
+	elsif (    defined $hist_id
 		 && $sched_offset >= 172800
 		 && !( report_date_math(-7) eq $feed_date )
 		 && $late ne 'K' )
@@ -687,6 +723,7 @@ sub row_info {
 		#			$status = 'recv';
 		#		}
 		# weekend case, mark recvd instead of late
+		
 		else {
 			$status = 'late';
 		}
@@ -904,7 +941,9 @@ sub cfg_checked {
 
 # returns human readable row title for given status
 sub get_title {
-	my ($status) = @_;
+	my ($status, $ops_id, $comments) = @_;
+	$ops_id ||= '';
+	$comments ||= '';
 	my $title = '';
 	if ( $status =~ m/^recv/ ) {
 		$title = 'received on time';
@@ -927,6 +966,17 @@ sub get_title {
 	elsif ( $status =~ m/wait/ ) {
 		$title = 'still waiting';
 	}
+	elsif ($status =~ m/special/) {
+		$title = 'special';
+	}
+	
+	if ($ops_id) {
+		$title .= "\nops_id: $ops_id";
+	}
+	if ($comments) {
+		$title.= "\n$comments";
+	}
+	
 	return "title='$title'";
 }
 

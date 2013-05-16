@@ -465,6 +465,9 @@ sub compile_table {
 			where sched_id = $sched_id and feed_date < '$last_week_date'
 			order by hist_id desc)";
 	}
+	else {
+		$dis_filter = "and (abs(datediff(dd, '$dbdate', cast(cast(filedate as varchar(8)) as datetime))) < 7 or filedate is null)";
+	}
 		my $select_history = "
 		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum
 		from [Update_History]
@@ -472,11 +475,10 @@ sub compile_table {
 		sched_id = $sched_id
 		and feed_date <= '$dbdate'
 		$dis_filter
-		--or abs(datediff(dd, '$dbdate', feed_date)) < 7)
 		$filter
 		order by hist_id desc
 	";
-	#warn $select_history and exit if $update_id == 406;
+	#warn $select_history and exit if $is_legacy;# if $update_id == 406;
 	#exit;
 		#	open LOG, '>>test.log';
 		#	say LOG $select_history;

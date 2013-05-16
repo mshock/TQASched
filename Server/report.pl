@@ -450,7 +450,7 @@ sub compile_table {
 	my %display_rows;
 	my $border_prev;
 	my ( $border_prev1, $border_prev2 ) = ( 0, 0 );
-	for my $row_aref ( @{$sched_aref}, @{$specials_aref} ) {
+	for my $row_aref ( @{$specials_aref}, @{$sched_aref} ) {
 
 		my ( $sched_id, $update_id, $sched_offset, $name, $is_legacy,
 			 $feed_id, $prev_date, $priority, $ops_id, $comments )

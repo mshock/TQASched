@@ -955,13 +955,13 @@ sub get_title {
 		$title = 'late, not yet received';
 	}
 	elsif ( $status =~ m/empty/ ) {
-		$title = 'received but empty';
+		$title = 'received and empty';
 	}
 	elsif ( $status =~ m/skip/ ) {
 		$title = 'skipped';
 	}
 	elsif ( $status =~ m/error/ ) {
-		$title = 'feed in error state';
+		$title = 'stale legacy checklist, awaiting operator refresh';
 	}
 	elsif ( $status =~ m/wait/ ) {
 		$title = 'still waiting';
@@ -971,7 +971,7 @@ sub get_title {
 	}
 	
 	if ($ops_id) {
-		$title .= "\nops_id: $ops_id";
+		$title .= "\n$ops_id";
 	}
 	if ($comments) {
 		$title.= "\n$comments";

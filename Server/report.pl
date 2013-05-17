@@ -417,11 +417,14 @@ sub compile_table {
 		";
 		
 	my $select_specials = 
-	"select sched_id, uh.update_id, 0, name, is_legacy, 'N/A', prev_date, priority
-	from update_history uh, updates u
-	where 
+	"select sched_id, uh.update_id, 0, name, is_legacy, ud.feed_id, prev_date, priority
+	from update_history uh join updates u
+	on
 	uh.update_id = u.update_id
-	and
+	left join update_dis ud
+	on u.update_id = ud.update_id
+	where
+	
 		
 			feed_date = '$dbdate'
 			and late = 'S'
@@ -575,7 +578,7 @@ sub compile_table {
 			%s
 		</tr>
 		",
-			$name, ( $debug_mode ? "[$update_id]" : '' ), $feed_id,
+			$name, ( $debug_mode ? "[$update_id]" : '' ), ($feed_id ? $feed_id : 'N/A'),
 			( $show_cols || $debug_mode ? "<td>$priority</td>" : '' ),
 			$sched_time, $recvd_time,
 			( $show_cols || $debug_mode ? "<td>$feed_date_pretty</td>" : '' ),
@@ -677,6 +680,8 @@ sub row_info {
 		$status = 'special';
 		$update     = $filedate ? "$filedate-$filenum" : 'N/A';
 		$daemon_ts  = $hist_ts;
+		$sched_time = 'N/A';
+		$recvd_time = $filedate ? offset2time($hist_offset) : 'N/A';
 	}
 	# history record exists, the feed date is not equal to one week ago and it isn't a skipped update
 	

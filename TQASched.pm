@@ -3305,9 +3305,8 @@ sub store_legacy_special {
 
 	my ( $trans_ts, $seq_num );
 	( $trans_ts, $trans_num, $seq_num )
-		= lookup_update( $row_href->{filedate}, $row_href->{filenum},
-						 $task_ref );
-	$trans_ts  ||= 0;
+		= lookup_update( $row_href->{filedate}, $row_href->{filenum} );
+	my $trans_offset  = datetime2offset($trans_ts);
 	$trans_num ||= 0;
 	$seq_num   ||= 0;
 
@@ -3335,10 +3334,21 @@ sub store_legacy_special {
 			return;
 		}
 	}
+	# select/insert feed_id from dis linking table
+	my $feed_id;
+	unless($feed_id = get_feed_id($update_id)) {
+		my $insert_feed_id = "
+			insert into update_dis values
+			('$task_ref', $update_id)
+		";
+		say "\tinserting new feed_id: $task_ref";
+		$dbh_sched->do($insert_feed_id);
+		
+	}
 
 	my $insert_query = "
 		insert into update_history values
-		($update_id,-1, '$trans_ts', $filedate, $filenum, 
+		($update_id,-1, $trans_offset, $filedate, $filenum, 
 		GETUTCDATE(), 'S', $trans_num, '$feed_date', 
 		$seq_num, '$ops_id', '$comments') 
 	";

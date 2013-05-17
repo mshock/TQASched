@@ -128,23 +128,23 @@ sub refresh {
 					}
 	) if $cfg->refresh_legacy;
 
-	if ( $cfg->lookahead ) {
-		my ( $tyear, $tmonth, $tday )
-			= parse_filedate( date_math( 1, $refresh_date_string ) );
-		say "lookahead: $tyear$tmonth$tday";
-		refresh_dis( { year       => $tyear,
-					   month      => $tmonth,
-					   day        => $tday,
-					   pause_mode => $pause_mode,
-					 }
-		) if $cfg->refresh_dis;
-		refresh_legacy( { year       => $tyear,
-						  month      => $tmonth,
-						  day        => $tday,
-						  pause_mode => $pause_mode,
-						}
-		) if $cfg->refresh_legacy;
-	}
+#	if ( $cfg->lookahead ) {
+#		my ( $tyear, $tmonth, $tday )
+#			= parse_filedate( date_math( 1, $refresh_date_string ) );
+#		say "lookahead: $tyear$tmonth$tday";
+#		refresh_dis( { year       => $tyear,
+#					   month      => $tmonth,
+#					   day        => $tday,
+#					   pause_mode => $pause_mode,
+#					 }
+#		) if $cfg->refresh_dis;
+#		refresh_legacy( { year       => $tyear,
+#						  month      => $tmonth,
+#						  day        => $tday,
+#						  pause_mode => $pause_mode,
+#						}
+#		) if $cfg->refresh_legacy;
+#	}
 
 }
 

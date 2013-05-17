@@ -2362,7 +2362,18 @@ sub refresh_dis {
 								   update_id => $update_id,
 								 }
 					);
-
+					if ($cfg->lookahead) {
+						say "\tlookahead";
+						my ( $nyear, $nmonth, $nday )
+							= parse_filedate(
+									   date_math( 1, $target_date_string ) );
+						refresh_dis( { year      => $nyear,
+									   month     => $nmonth,
+									   day       => $nday,
+									   update_id => $update_id,
+									 }
+						);
+					} 
 					#	}
 				}
 				next;
@@ -2795,12 +2806,14 @@ sub refresh_dis {
 #					or warn
 #					"\t[2] no transaction # found for enum feed $name, $sender skipping\n$transactions\n"
 #					and next;
+#					if (defined $feed_date) {
 					( $feed_year, $feed_mon, $feed_day )
 						= ( $feed_date =~ m/(\d+)-(\d+)-(\d+)/ );
 					my ( $dfeed_year, $dfeed_mon, $dfeed_day )
 						= ( $dis_feed_date =~ m/(\d+)-(\d+)-(\d+)/ );
 					dsay( $feed_year,  $feed_mon,  $feed_day );
 					dsay( $dfeed_year, $dfeed_mon, $dfeed_day );
+#					}
 				}
 				else {
 					if ($future_flag) {
@@ -3234,18 +3247,19 @@ sub refresh_legacy {
 				$status ||= 'Y';
 
 				#say "late $name $trans_offset to offset: $sched_offset";
-				update_history( { update_id    => $update_id,
-								  sched_id     => $sched_id,
-								  trans_offset => $trans_offset,
-								  late         => $status,
-								  filedate     => $row_data->{filedate},
-								  filenum      => $row_data->{filenum},
-								  is_legacy    => 1,
-								  feed_date    => $feed_date,
-								  seq_num      => $seq_num,
-								  id           => $row_data->{id},
-								  comments     => $row_data->{comments},
-								}
+				update_history(
+					{ update_id    => $update_id,
+					  sched_id     => $sched_id,
+					  trans_offset => $trans_offset,
+					  late         => $status,
+					  filedate     => $row_data->{filedate},
+					  filenum      => $row_data->{filenum},
+					  is_legacy    => 1,
+					  feed_date    => $feed_date,
+					  seq_num      => $seq_num,
+					  id           => $row_data->{id},
+					  comments     => $row_data->{comments},
+					}
 				);
 			}
 
@@ -3329,7 +3343,7 @@ sub store_legacy_special {
 		$seq_num, '$ops_id', '$comments') 
 	";
 
-	if ( !legacy_special_dup( $update_id, $filenum, $filedate) ) {
+	if ( !legacy_special_dup( $update_id, $filenum, $filedate ) ) {
 
 		#say $insert_query;
 		say "\tinserting $special";
@@ -3344,8 +3358,8 @@ sub store_legacy_special {
 
 # check if this a duplicate special update record
 sub legacy_special_dup {
-	my ($update_id, $filenum, $filedate) = @_;
-	
+	my ( $update_id, $filenum, $filedate ) = @_;
+
 	my $select_query = "
 		select hist_id from update_history where update_id = $update_id
 		and filenum = $filenum and filedate = $filedate  

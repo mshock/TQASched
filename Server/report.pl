@@ -671,7 +671,7 @@ sub row_info {
 	my ( $status, $daemon_ts, $recvd_time, $update );
 	
 	# special updates are processed first
-	if ( $late eq 'S' )
+	if (defined $late && $late eq 'S' )
 	{
 		#warn $filenum and exit;
 		$status = 'special';

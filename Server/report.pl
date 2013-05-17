@@ -417,7 +417,7 @@ sub compile_table {
 		";
 		
 	my $select_specials = 
-	"select sched_id, uh.update_id, 0, name, is_legacy, 'N/A', prev_date, priority, ops_id, comments
+	"select sched_id, uh.update_id, 0, name, is_legacy, 'N/A', prev_date, priority
 	from update_history uh, updates u
 	where 
 	uh.update_id = u.update_id
@@ -453,7 +453,7 @@ sub compile_table {
 	for my $row_aref ( @{$specials_aref}, @{$sched_aref} ) {
 
 		my ( $sched_id, $update_id, $sched_offset, $name, $is_legacy,
-			 $feed_id, $prev_date, $priority, $ops_id, $comments )
+			 $feed_id, $prev_date, $priority )
 			= @{$row_aref};
 
 		#		my $feed_date = sched_id2feed_date($sched_id, $dbdate);
@@ -485,7 +485,7 @@ sub compile_table {
 		$dis_filter = "and (abs(datediff(dd, '$dbdate', cast(cast(filedate as varchar(8)) as datetime))) < 7 or filedate is null)";
 	}
 		my $select_history = "
-		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum
+		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum,ops_id,comments
 		from [Update_History]
 		where
 		
@@ -499,7 +499,7 @@ sub compile_table {
 		order by hist_id desc
 	";
 	my $select_special = "
-		select hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum 
+		select hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum,ops_id,comments 
 		from update_history
 		where late = 'S'
 		and feed_date = '$dbdate'
@@ -517,7 +517,7 @@ sub compile_table {
 
 		my ( $hist_id,   $hist_offset, $filedate,
 			 $filenum,   $hist_ts,     $late,
-			 $feed_date, $seq_num,     $transnum
+			 $feed_date, $seq_num,     $transnum, $ops_id, $comments
 		) = $hist_query->fetchrow_array();
 
 		# if no history record, feed date was too far in past - wait or late

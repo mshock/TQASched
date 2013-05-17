@@ -271,6 +271,12 @@ sub define_defaults {
 		report_title => { DEFAULT => '',
 						  ALIAS   => 'title',
 		},
+		
+		report_popup_tnum => {
+			DEFAULT => '',
+			ARGS => ':i',
+			ALIAS => 'target_trans'
+		}, 
 
 # refresh rate for the report page - can't be less than 10, and 0 means never.
 # (in seconds)

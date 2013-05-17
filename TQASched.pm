@@ -1137,6 +1137,8 @@ sub sender2dbh {
 		warn "DIS feed sender $sender somehow not sent from DIS1\n";
 	}
 
+	check_handles();
+
 	for ($server) {
 		when (/1/) { return $dbh_dis1 }
 		when (/2/) { return $dbh_dis2 }
@@ -3335,6 +3337,7 @@ sub store_legacy_special {
 		}
 	}
 	# select/insert feed_id from dis linking table
+	# TODO allow ops to assign to existing feed_ids
 	my $feed_id;
 	unless($feed_id = get_feed_id($update_id)) {
 		my $insert_feed_id = "

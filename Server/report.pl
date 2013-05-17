@@ -9,7 +9,10 @@
 use strict;
 use feature qw(say switch);
 use Time::Local qw(timegm);
-use Data::Dumper;
+use Net::FTP;
+use File::Copy;
+
+#use Data::Dumper;
 use lib '..';
 use TQASched;
 
@@ -25,6 +28,13 @@ my ($dbh_sched) = refresh_handles( ('sched') );
 # all possible POST parameters
 my ( $headerdate, $headertime, $dbdate ) = calc_datetime();
 
+
+my $target_trans = $cfg->target_trans;
+if ($target_trans) {
+	popup($target_trans);
+	exit;
+}
+
 # get POST params
 # parsed from CLI arg key/value pairs
 my ( $post_date,       $legacy_filter, $dis_filter,   $prev_search,
@@ -33,6 +43,7 @@ my ( $post_date,       $legacy_filter, $dis_filter,   $prev_search,
 ) = ('') x 10;
 
 my $upd_num = 0;
+
 
 # check whether the daemon has been frozen
 $daemon_freeze = $cfg->freeze;
@@ -212,8 +223,9 @@ sub print_thead {
 	# styles and formats for debug mode
 	if ($debug_mode) {
 		$page_table_classes .= ' debug ';
+
 		# debug will also display weekday name
-		my $weekday_name =  code_weekday(get_wd(),1);
+		my $weekday_name = code_weekday( get_wd(), 1 );
 		$header_warning .= "
 			<tr>
 				<th colspan = '$num_headers' class='warning'>
@@ -241,9 +253,6 @@ sub print_thead {
 	</tr>"
 			;
 	}
-
-	
-	
 
 	say "
 <form method='GET'>
@@ -367,9 +376,8 @@ sub compile_table {
 			$filter .= " and us.sched_epoch = $sched_offset";
 		}
 	}
-	my $next_wd = shift_wd($wd, 1);
+	my $next_wd = shift_wd( $wd, 1 );
 	my $filter_sched = " and ( us.weekday = $wd )";
-	
 
 	my $select_schedule1 = "
 	  select distinct us.sched_id, us.update_id, us.sched_epoch, u.name, u.is_legacy, d.feed_id, u.prev_date, u.priority
@@ -389,8 +397,8 @@ sub compile_table {
       $filter
       order by sched_epoch asc, name asc
 	";
-	
-		#my $filter_sched = "and (us.weekday = $current_wd)";
+
+	#my $filter_sched = "and (us.weekday = $current_wd)";
 	my $select_schedule2 = "
 		select distinct us.sched_id, us.update_id, us.sched_epoch, u.name, u.is_legacy, d.feed_id, u.prev_date, u.priority
 		from 
@@ -415,9 +423,9 @@ sub compile_table {
 	
 		order by sched_epoch asc, name asc
 		";
-		
-	my $select_specials = 
-	"select sched_id, uh.update_id, 0, name, is_legacy, ud.feed_id, prev_date, priority
+
+	my $select_specials
+		= "select sched_id, uh.update_id, 0, name, is_legacy, ud.feed_id, prev_date, priority
 	from update_history uh join updates u
 	on
 	uh.update_id = u.update_id
@@ -430,6 +438,7 @@ sub compile_table {
 			and late = 'S'
 		
 	";
+
 	#warn $select_specials and exit;
 	#warn $select_schedule2 and exit;
 	#warn $select_schedule;
@@ -446,8 +455,9 @@ sub compile_table {
 
 	#warn $select_history and die;
 	#say 'executing sched query';
-	my $sched_aref = $dbh_sched->selectall_arrayref($select_schedule2);
+	my $sched_aref    = $dbh_sched->selectall_arrayref($select_schedule2);
 	my $specials_aref = $dbh_sched->selectall_arrayref($select_specials);
+
 	#say 'iterating...';
 	my $row_count = 0;
 	my %display_rows;
@@ -465,28 +475,30 @@ sub compile_table {
 		#			next;
 		#		}
 
-		if ($is_legacy && $wd == 0 && $prev_date) {
-			my ($psched_id, $poffset) = prev_sched_offset($sched_id);
+		if ( $is_legacy && $wd == 0 && $prev_date ) {
+			my ( $psched_id, $poffset ) = prev_sched_offset($sched_id);
 			$sched_id = $psched_id if $psched_id;
 		}
-#		else {
-#			my $sched_feed_date = sched_id2feed_date($sched_id,$dbdate);
-#			$filter .= " and feed_date = '$sched_feed_date'"
-#		}
-	
-	my $last_week_date = date_math(-7, $dbdate);
-	my $dis_filter = '';
-	
-	if (!$is_legacy) {
-		$dis_filter = "
+
+		#		else {
+		#			my $sched_feed_date = sched_id2feed_date($sched_id,$dbdate);
+		#			$filter .= " and feed_date = '$sched_feed_date'"
+		#		}
+
+		my $last_week_date = date_math( -7, $dbdate );
+		my $dis_filter = '';
+
+		if ( !$is_legacy ) {
+			$dis_filter = "
 		and hist_id  > 
 			(select top 1 hist_id from update_history 
 			where sched_id = $sched_id and feed_date < '$last_week_date'
 			order by hist_id desc)";
-	}
-	else {
-		$dis_filter = "and (abs(datediff(dd, '$dbdate', cast(cast(filedate as varchar(8)) as datetime))) < 7 or filedate is null)";
-	}
+		}
+		else {
+			$dis_filter
+				= "and (abs(datediff(dd, '$dbdate', cast(cast(filedate as varchar(8)) as datetime))) < 7 or filedate is null)";
+		}
 		my $select_history = "
 		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum,ops_id,comments
 		from [Update_History]
@@ -501,26 +513,28 @@ sub compile_table {
 		
 		order by hist_id desc
 	";
-	my $select_special = "
+		my $select_special = "
 		select hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum,ops_id,comments 
 		from update_history
 		where late = 'S'
 		and feed_date = '$dbdate'
 		order by hist_id desc
 	";
-	#warn $select_special and exit if $sched_id == -1;# if $update_id == 406;
-	#exit;
-		#	open LOG, '>>test.log';
-		#	say LOG $select_history;
-		#	close LOG;
-		#
-		#say $select_history if $sched_id == 271;
-		my $hist_query = $dbh_sched->prepare($sched_id == -1 ? $select_special : $select_history);
+
+	 #warn $select_special and exit if $sched_id == -1;# if $update_id == 406;
+	 #exit;
+	 #	open LOG, '>>test.log';
+	 #	say LOG $select_history;
+	 #	close LOG;
+	 #
+	 #say $select_history if $sched_id == 271;
+		my $hist_query = $dbh_sched->prepare(
+						$sched_id == -1 ? $select_special : $select_history );
 		$hist_query->execute();
 
-		my ( $hist_id,   $hist_offset, $filedate,
-			 $filenum,   $hist_ts,     $late,
-			 $feed_date, $seq_num,     $transnum, $ops_id, $comments
+		my ( $hist_id,  $hist_offset, $filedate,  $filenum,
+			 $hist_ts,  $late,        $feed_date, $seq_num,
+			 $transnum, $ops_id,      $comments
 		) = $hist_query->fetchrow_array();
 
 		# if no history record, feed date was too far in past - wait or late
@@ -552,7 +566,7 @@ sub compile_table {
 		( $border_class1, $border_class2, $border_prev )
 			= format_border( $row_class, $border_prev );
 
-		my $tr_title      = get_title($row_class, $ops_id, $comments);
+		my $tr_title = get_title( $row_class, $ops_id, $comments );
 		my $extra_classes = '';
 
 #		$tr_title .= defined $seq_num
@@ -566,7 +580,7 @@ sub compile_table {
 		$recvd_time ||= 'N/A';
 		my $update_row = sprintf( "
 		<tr $tr_title class='$border_class1 $border_class2 $row_class $extra_classes'>
-			<td>%s\t%s</td>
+			<td><a href='javascript:;' onClick=\"window.open('?target_trans=$transnum', 'Transaction $transnum', 'scrollbars=no,width=500,height=100');\">%s\t%s</a></td>
 			<td>%s</td>
 			%s
 			<td>%s</td>
@@ -578,7 +592,8 @@ sub compile_table {
 			%s
 		</tr>
 		",
-			$name, ( $debug_mode ? "[$update_id]" : '' ), ($feed_id ? $feed_id : 'N/A'),
+			$name, ( $debug_mode ? "[$update_id]" : '' ),
+			( $feed_id ? $feed_id : 'N/A' ),
 			( $show_cols || $debug_mode ? "<td>$priority</td>" : '' ),
 			$sched_time, $recvd_time,
 			( $show_cols || $debug_mode ? "<td>$feed_date_pretty</td>" : '' ),
@@ -672,23 +687,24 @@ sub row_info {
 	my $sched_time = offset2time( $sched_offset, 1 );
 
 	my ( $status, $daemon_ts, $recvd_time, $update );
-	
+
 	# special updates are processed first
-	if (defined $late && $late eq 'S' )
-	{
+	if ( defined $late && $late eq 'S' ) {
+
 		#warn $filenum and exit;
-		$status = 'special';
+		$status     = 'special';
 		$update     = $filedate ? "$filedate-$filenum" : 'N/A';
 		$daemon_ts  = $hist_ts;
 		$sched_time = 'N/A';
 		$recvd_time = $filedate ? offset2time($hist_offset) : 'N/A';
 	}
-	# history record exists, the feed date is not equal to one week ago and it isn't a skipped update
-	
+
+# history record exists, the feed date is not equal to one week ago and it isn't a skipped update
+
 	elsif (    defined $hist_id
-		 && $sched_offset >= 172800
-		 && !( report_date_math(-7) eq $feed_date )
-		 && $late ne 'K' )
+			&& $sched_offset >= 172800
+			&& !( report_date_math(-7) eq $feed_date )
+			&& $late ne 'K' )
 	{
 
 		# if marked as not late or empty
@@ -728,7 +744,7 @@ sub row_info {
 		#			$status = 'recv';
 		#		}
 		# weekend case, mark recvd instead of late
-		
+
 		else {
 			$status = 'late';
 		}
@@ -946,8 +962,8 @@ sub cfg_checked {
 
 # returns human readable row title for given status
 sub get_title {
-	my ($status, $ops_id, $comments) = @_;
-	$ops_id ||= '';
+	my ( $status, $ops_id, $comments ) = @_;
+	$ops_id   ||= '';
 	$comments ||= '';
 	my $title = '';
 	if ( $status =~ m/^recv/ ) {
@@ -971,17 +987,17 @@ sub get_title {
 	elsif ( $status =~ m/wait/ ) {
 		$title = 'still waiting';
 	}
-	elsif ($status =~ m/special/) {
+	elsif ( $status =~ m/special/ ) {
 		$title = 'special';
 	}
-	
+
 	if ($ops_id) {
 		$title .= "\n$ops_id";
 	}
 	if ($comments) {
-		$title.= "\n$comments";
+		$title .= "\n$comments";
 	}
-	
+
 	return "title='$title'";
 }
 
@@ -995,4 +1011,87 @@ sub report_date_math {
 	my ( $sec, $min, $hour, $mday, $mon, $y, $wday, $yday, $isdst )
 		= gmtime($time);
 	return sprintf '%u-%02u-%02u', $y + 1900, $mon + 1, $mday;
+}
+
+sub popup {
+	my ($t_transnum) = @_;
+
+
+	die 'no transum' if !$t_transnum;
+
+	my $output = '';
+
+	my ($dbh_prod1) = refresh_handles('prod1');
+
+	print "HTTP/1.0 200 OK\r\n";
+	print "Content-type: text/html\n\n";
+
+	my $select_transaction_query = "
+	select sender, outputfilepath from [TQALic].dbo.[PackageQueue] with (NOLOCK)
+	where transactionnumber = $t_transnum
+";
+
+	my ( $sender, $output_file_local )
+		= $dbh_prod1->selectrow_array($select_transaction_query);
+
+	my $dbh_dis = TQASched::sender2dbh($sender);
+
+	my $select_ftp_path = "
+	select ftpfilepath from dataingestioninfrastructure.dbo.makeupdateinfo with (NOLOCK)
+	where distransactionnumber = $t_transnum
+";
+
+	my ($ftp_path) = $dbh_dis->selectrow_array($select_ftp_path);
+
+	my ( $ftp_host, $directory ) = parse_ftp_path($ftp_path);
+
+	my $ftp = Net::FTP->new($ftp_host) or die 'failed to connect';
+
+	$ftp->login( 'marketqa_client', 'voodo' ) or die 'failed to login';
+
+	$ftp->cwd($directory) or die 'failed to cwd';
+
+	my @files = $ftp->ls;
+	
+	$ftp->binary;
+
+	my $local_file = $ftp->get( $files[0] );
+
+	$ftp->quit;
+
+	unless (-d 'Files') {
+		mkdir 'Files';
+	}
+	
+	move( $local_file, "Files/$local_file" );
+
+	print "
+<html>
+	<head>
+		<title>Transaction Number: $t_transnum</title>
+		<meta http-equiv='refresh' content='300' >
+		<link rel='stylesheet' type='text/css' href='styles.css' />
+	</head>	
+	<body>
+		<table>
+			<tr>
+				<td>Output File:</td>
+				<td><a href='$local_file' class='download'>$local_file</a></td>
+			</tr>
+			<tr>
+				<td>UPD:</td>
+				<td>not yet supported</td>
+			</tr>
+		</table>
+	</body>
+</html>
+";
+}
+
+# return the host for the FTP path to file
+sub parse_ftp_path {
+	my ($path) = @_;
+	my ( $host, $dir ) = $path =~ m!ftp://((?:\d+\.?){4})/(.*)!;
+	$host =~ s/\.4$/.20/;
+	return ( $host, $dir );
 }

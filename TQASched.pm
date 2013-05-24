@@ -72,7 +72,7 @@ our @CLI = @ARGV;
 # so that importers can create their own handles
 # INV: may be completely unecessary! kind of a scoping grey area - test when time
 our @db_hrefs = my ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
-					 $dis2_db,  $dis3_db, $dis4_db,  $dis5_db );
+					 $dis2_db,  $dis3_db, $dis4_db,  $dis5_db, $change_db );
 
 # require/use bounce
 # return if being imported as module rather than run directly - also snarky import messages are fun
@@ -114,7 +114,7 @@ my ($dbh_sched,
 
 	#$dbh_auh,
 	$dbh_prod1, $dbh_dis1,
-	$dbh_dis2, $dbh_dis3, $dbh_dis4, $dbh_dis5
+	$dbh_dis2, $dbh_dis3, $dbh_dis4, $dbh_dis5, $dbh_cdb
 ) = refresh_handles();
 
 say 'finished. TQASched all warmed up and revving to go go go ^_^';
@@ -402,6 +402,7 @@ sub refresh_handles {
 			when (m/dis3/i)     { push @refresh_list, $dis3_db }
 			when (m/dis4|tt3/i) { push @refresh_list, $dis4_db }
 			when (m/dis5|tt5/i) { push @refresh_list, $dis5_db }
+			when (m/change/) { push @refresh_list, $change_db }
 			default {
 				say "trying to refresh unrecognized handle: $_ from "
 					. (caller)[1];
@@ -436,7 +437,7 @@ sub refresh_handles {
 
 		#$dbh_auh,
 		$dbh_prod1, $dbh_dis1,
-		$dbh_dis2, $dbh_dis3, $dbh_dis4, $dbh_dis5
+		$dbh_dis2, $dbh_dis3, $dbh_dis4, $dbh_dis5, $dbh_cdb
 	) = map { init_handle($_) } @refresh_list;
 
 }
@@ -450,7 +451,7 @@ sub check_handles {
 
 		#$dbh_auh,
 		$dbh_prod1, $dbh_dis1,
-		$dbh_dis2, $dbh_dis3, $dbh_dis4, $dbh_dis5
+		$dbh_dis2, $dbh_dis3, $dbh_dis4, $dbh_dis5, $dbh_cdb
 		)
 	{
 		$undefs++ unless defined;
@@ -857,33 +858,64 @@ sub get_wd {
 # TODO make this work for odd schedules
 sub next_sched_offset {
 	my $sched_id = shift;
-	my $offset;
-	my $next_sched_query = "
-		select b.sched_id, b.sched_epoch
-		from [Update_Schedule] a
-		join
-		update_schedule c
-		on a.update_id = c.update_id
-		join
-		[Update_Schedule] b
-		on a.update_id = b.update_id
-		and (
-				(b.weekday = a.weekday + 1) 
-			or	(a.weekday = 6 and b.weekday = 0) 
-			or (a.weekday = 5 and b.weekday = 1 and c.weekday != 6 and c.weekday != 0)
-			or (a.weekday = 6 and b.weekday = 2 and c.weekday > 1)
-		)  
-		where a.sched_id = $sched_id
-		and b.sched_id = c.sched_id
-	";
 
-	#dsay $next_sched_query;
-	my $old_sched_id = $sched_id;
-	( $sched_id, $offset ) = $dbh_sched->selectrow_array($next_sched_query);
+#	my $next_sched_query = "
+#		select b.sched_id, b.sched_epoch
+#		from [Update_Schedule] a
+#		join
+#		update_schedule c
+#		on a.update_id = c.update_id
+#		join
+#		[Update_Schedule] b
+#		on a.update_id = b.update_id
+#		and (
+#				(b.weekday = a.weekday + 1)
+#			or	(a.weekday = 6 and b.weekday = 0)
+#			or (a.weekday = 5 and b.weekday = 1 and c.weekday != 6 and c.weekday != 0)
+#			or (a.weekday = 6 and b.weekday = 2 and c.weekday > 1)
+#		)
+#		where a.sched_id = $sched_id
+#		and b.sched_id = c.sched_id
+#		order by sched_id desc
+#	";
+
+	my $update_id = sched_id2update_id($sched_id);
+
+	my $wd = get_sched_wd($sched_id);
+
+	#say "starting $wd for $update_id";
+	my ( $nsched_id, $noffset );
+	until ($nsched_id) {
+		$wd = shift_wd( $wd, 1 );
+
+		#say "trying $wd";
+		( $nsched_id, $noffset ) = $dbh_sched->selectrow_array(
+			"select sched_id, sched_epoch from update_schedule
+			where weekday = $wd and update_id = $update_id"
+		);
+
+		#say "$nsched_id";
+
+	}
+
+	#	my $old_sched_id = $sched_id;
+	#	my $offset;
+	#	( $sched_id, $offset ) = $dbh_sched->selectrow_array($next_sched_query);
 
 	#dsay( $old_sched_id, $sched_id, $offset );
 
-	return ( $sched_id, $offset );
+	return ( $nsched_id, $noffset );
+}
+
+# get the update_id associated with this schedule instance
+sub sched_id2update_id {
+	my $sched_id = shift;
+
+	my $select_update_id = "
+		select update_id from update_schedule where sched_id = $sched_id 
+	";
+	my ($update_id) = $dbh_sched->selectrow_array($select_update_id);
+	return $update_id;
 }
 
 # gets the sched_id of the next day given sched_id of current
@@ -1679,9 +1711,9 @@ sub load_conf {
 	$cfg->pod( find_pod_usage($cfg) );
 
 	# get hashes of database connection information
-	(  $sched_db, $auh_db,  $prod1_db, $dis1_db,
-	   $dis2_db,  $dis3_db, $dis4_db,  $dis5_db )
-		= map { get_handle_hash($_) } qw(sched_db auh_db prod1_db 1 2 3 4 5);
+	(  $sched_db,  $prod1_db, $dis1_db,
+	   $dis2_db,  $dis3_db, $dis4_db,  $dis5_db, $change_db )
+		= map { get_handle_hash($_) } qw(sched_db prod1_db 1 2 3 4 5 change_db);
 
 	return $cfg;
 }
@@ -2265,11 +2297,12 @@ sub refresh_dis {
 		# targetted schedule ID update run
 		my $next_wd = shift_wd( $current_wd, 1 );
 
-		#my $filter_sched = "and (us.weekday = $current_wd)";
-		my $filter_sched
-			= " and ( (us.weekday = $current_wd and u.prev_date != 1) or (us.weekday = $next_wd and u.prev_date = 1 ))";
+#my $filter_sched = "and (us.weekday = $current_wd)";
+#		my $filter_sched
+#			= " and ( (us.weekday = $current_wd and u.prev_date != 1) or (us.weekday = $next_wd and u.prev_date = 1 ))";
 
-#my $filter_sched = " and ( (us.weekday = $current_wd) or (us.weekday = $next_wd and u.prev_date = 1 ))";
+		my $filter_sched
+			= " and ( (us.weekday = $current_wd) or (us.weekday = $next_wd and u.prev_date = 1 ))";
 
 #		if (defined $prev_date && $prev_date == 1) {
 #			$filter_sched = sprintf 'and us.weekday = %u', shift_wd($current_wd,1);
@@ -2326,7 +2359,7 @@ sub refresh_dis {
 			dsay( $feed_id,  $name,      $offset,
 				  $sched_id, $update_id, $prev_date );
 			$current_wd = $sched_wd;
-			my $wd_prev_flag = $current_wd != $old_current_wd;
+			my $wd_prev_flag = $current_wd < $old_current_wd;
 
 			# handle annoying FIEJV feeds not being enumerated
 			# TODO fix special case for FIEJV
@@ -2364,18 +2397,19 @@ sub refresh_dis {
 								   update_id => $update_id,
 								 }
 					);
-					if ($cfg->lookahead) {
+					if ( $cfg->lookahead ) {
 						say "\tlookahead";
 						my ( $nyear, $nmonth, $nday )
 							= parse_filedate(
-									   date_math( 1, $target_date_string ) );
+										date_math( 1, $target_date_string ) );
 						refresh_dis( { year      => $nyear,
 									   month     => $nmonth,
 									   day       => $nday,
 									   update_id => $update_id,
 									 }
 						);
-					} 
+					}
+
 					#	}
 				}
 				next;
@@ -2459,8 +2493,12 @@ sub refresh_dis {
 				#						# everyone else gets immediate next offset
 				#						else {
 						if ( $rollover && $current_wd == 6 && $prev_date ) {
+
+							#if ( $rollover && $prev_date ) {
 							say
-								"\tweek rollover detected on sunday, no sched_id or offset overwrite";
+								"\tweek rollover detected, no sched_id or offset overwrite";
+
+	   #"\tweek rollover detected on sunday, no sched_id or offset overwrite";
 						}
 						elsif ( !$rollover ) {
 							$offset   = $poffset;
@@ -2541,9 +2579,11 @@ sub refresh_dis {
 # rewind Data Explorers (DXL_Daily) an extra time
 # TODO figure out DXL
 #if ( $update_id == 156 || $update_id == 432 || $update_id == 433 || $update_id == 434 || $update_id == 431 || $update_id == 184 || $update_id == 189 || $update_id == 272 || $update_id == 282 ) {
-			if (    ( $update_id == 156 )
-				 || ( $update_id == 272 && $current_wd == 2 )
-				 || ( $feed_id =~ m/^RKDGF/ && $current_wd != 0 ) )
+			if ((  $update_id == 156 || $update_id == 176 || $update_id == 271
+				)
+				|| ( $update_id == 272)
+				|| ( $feed_id =~ m/^RKDGF/ && $current_wd != 0 )
+				)
 			{
 
 				#($feed_id =~ m/^RKDGF/ && $current_wd != 2)) {
@@ -2722,9 +2762,13 @@ sub refresh_dis {
 				--order by FeedDate desc
 			";
 				dsay $dis_trans;
-				my ( $dis_feed_date, $dis_feed_status, $future_flag );
-				until ( ( $trans_num, $dis_feed_date, $dis_feed_status )
-						= $dbh_dis->selectrow_array($dis_trans) )
+				my ( $dis_feed_date, $dis_feed_status,
+					 $future_flag,   $rewinds );
+				until ( ( ( $trans_num, $dis_feed_date, $dis_feed_status )
+						  = $dbh_dis->selectrow_array($dis_trans)
+						)
+							|| $rewinds++ > 14
+					)
 				{
 
 	  #					if ($prev_date && !defined $trans_num) {
@@ -2815,7 +2859,8 @@ sub refresh_dis {
 						= ( $dis_feed_date =~ m/(\d+)-(\d+)-(\d+)/ );
 					dsay( $feed_year,  $feed_mon,  $feed_day );
 					dsay( $dfeed_year, $dfeed_mon, $dfeed_day );
-#					}
+
+					#					}
 				}
 				else {
 					if ($future_flag) {
@@ -3115,10 +3160,10 @@ sub refresh_legacy {
 			my $border_flag = 0;
 			my $tmp_weekday_code;
 			if ($update_id == 406
-
-				# || $update_id == 405
+				|| $update_id == 407
+				 || $update_id == 405
 				|| $update_id == 403 
-				|| $update_id == 407 || $update_id == 408
+				|| $update_id == 408
 				)
 			{
 				dsay "\tfixing border weekday from $weekday_code"
@@ -3249,19 +3294,18 @@ sub refresh_legacy {
 				$status ||= 'Y';
 
 				#say "late $name $trans_offset to offset: $sched_offset";
-				update_history(
-					{ update_id    => $update_id,
-					  sched_id     => $sched_id,
-					  trans_offset => $trans_offset,
-					  late         => $status,
-					  filedate     => $row_data->{filedate},
-					  filenum      => $row_data->{filenum},
-					  is_legacy    => 1,
-					  feed_date    => $feed_date,
-					  seq_num      => $seq_num,
-					  id           => $row_data->{id},
-					  comments     => $row_data->{comments},
-					}
+				update_history( { update_id    => $update_id,
+								  sched_id     => $sched_id,
+								  trans_offset => $trans_offset,
+								  late         => $status,
+								  filedate     => $row_data->{filedate},
+								  filenum      => $row_data->{filenum},
+								  is_legacy    => 1,
+								  feed_date    => $feed_date,
+								  seq_num      => $seq_num,
+								  id           => $row_data->{id},
+								  comments     => $row_data->{comments},
+								}
 				);
 			}
 
@@ -3300,15 +3344,15 @@ sub store_legacy_special {
 		 $filenum,   $special, $ops_id,    $comments )
 		= map { $row_href->{$_} }
 		qw(ingestion tt_no trans_num task_ref filedate filenum special id comments);
-	unless ($special) {
-		say 'no name for this special upd, skipping';
+	unless ($special && $trans_num ) {
+		say 'this special upd not yet packaged, skipping';
 		return;
 	}
 
 	my ( $trans_ts, $seq_num );
 	( $trans_ts, $trans_num, $seq_num )
 		= lookup_update( $row_href->{filedate}, $row_href->{filenum} );
-	my $trans_offset  = datetime2offset($trans_ts);
+	my $trans_offset = datetime2offset($trans_ts);
 	$trans_num ||= 0;
 	$seq_num   ||= 0;
 
@@ -3336,17 +3380,18 @@ sub store_legacy_special {
 			return;
 		}
 	}
+
 	# select/insert feed_id from dis linking table
 	# TODO allow ops to assign to existing feed_ids
 	my $feed_id;
-	unless($feed_id = get_feed_id($update_id)) {
+	unless ( $feed_id = get_feed_id($update_id) ) {
 		my $insert_feed_id = "
 			insert into update_dis values
 			('$task_ref', $update_id)
 		";
 		say "\tinserting new feed_id: $task_ref";
 		$dbh_sched->do($insert_feed_id);
-		
+
 	}
 
 	my $insert_query = "
@@ -3387,6 +3432,7 @@ sub special_feed_date {
 	my $select_fdfn_query = "
 		select ProcessTime
 		from [TQALic].[dbo].[PackageQueue]
+		with (NOLOCK)
 		where FileDate = '$filedate'
 		and FileNum= '$filenum'
 		and status != 0
@@ -3447,9 +3493,11 @@ sub legacy_feed_date {
 
 	# sunday is actually at the 'end' of the week
 	elsif ( $curr_wd == 0 ) {
+		#say "curr_wd = 0";
 		$delta = -7 + $excel_wd;
 	}
 	elsif ( $excel_wd == 0 ) {
+		#say "excel_wd = 0";
 		$delta = $curr_wd - 7;
 	}
 	else {
@@ -3499,6 +3547,7 @@ sub lookup_update {
 	my $select_fdfn_query = "
 		select ProcessTime, TransactionNumber, seqnum
 		from [TQALic].[dbo].[PackageQueue]
+		with (NOLOCK)
 		where FileDate = '$filedate'
 		and FileNum= '$filenum'
 		and status != 0

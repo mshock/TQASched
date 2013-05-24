@@ -28,11 +28,11 @@ my $server = WebServer->new( $cfg->port );
 
 say 'hold your hats, the server is starting up its jets';
 
-write_log({
-	logfile => $cfg->server_log,
-	type => 'INFO',
-	msg => 'server instance created, intiating hosting process',
-});
+write_log( { logfile => $cfg->server_log,
+			 type    => 'INFO',
+			 msg     => 'server instance created, intiating hosting process',
+		   }
+);
 
 # execute server process
 $server->run();
@@ -52,34 +52,41 @@ write_log( { logfile => $cfg->server_log,
 sub handle_request {
 	my ( $self, $cgi ) = @_;
 
-	# parse POST into CLI argument key/value pairs
-	# TODO: use AppConfig's CGI parser
-	my $params_string = '';
-	for ( $cgi->param ) {
-		$params_string .= sprintf( '--%s="%s" ', $_, $cgi->param($_) )
-			if defined $cgi->param($_);
-	}
+		# parse POST into CLI argument key/value pairs
+		# TODO: use AppConfig's CGI parser
+		my $params_string = '';
+		for ( $cgi->param ) {
+			$params_string .= sprintf( '--%s="%s" ', $_, $cgi->param($_) )
+				if defined $cgi->param($_);
+		}
 
-	# static serve web directory for css, generated charts (later, ajax)
-	if ( $cgi->path_info =~ m/\.(css|xls|js|ico|jpg|gif)/i ) {
-		$self->serve_static( $cgi, 'Resources' );
-		return;
-	}
-	elsif ( $cgi->path_info =~ m/\.(zip)/i ) {
-		$self->serve_static( $cgi, 'Files' );
-		return;
-	}
+		# static serve web directory for css, generated charts (later, ajax)
+		if ( $cgi->path_info =~ m/\.(css|xls|js|ico|jpg|gif)/i ) {
+			$self->serve_static( $cgi, 'Resources' );
+			return;
+		}
+		elsif ( $cgi->path_info =~ m/\.(zip)/i ) {
+			# fork a new process for hosting downloaded resources
+			my $pid = fork();
+			if ($pid == 0){
+				$self->serve_static( $cgi, 'Files' );
+				return;
+			}
+			return;
+		}
 
-	write_log( { logfile => $cfg->server_log,
-				 type    => 'INFO',
-				 msg     => "${\$cgi->remote_addr}\t$params_string"
-			   }
-	);
-	
-	# reload config file
-	$cfg->file( '../' . $cfg->config_file )
-	or warn "failed to reload config file $!";
-	
-	my $hosted_script = $cfg->maint_mode ? $cfg->maint_script : $cfg->report_script; 
-	print `perl $hosted_script $params_string`;
+		write_log( { logfile => $cfg->server_log,
+					 type    => 'INFO',
+					 msg     => "${\$cgi->remote_addr}\t$params_string"
+				   }
+		);
+
+		# reload config file
+		$cfg->file( '../' . $cfg->config_file )
+			or warn "failed to reload config file $!";
+
+		my $hosted_script
+			= $cfg->maint_mode ? $cfg->maint_script : $cfg->report_script;
+		print `perl $hosted_script $params_string`;
+
 }

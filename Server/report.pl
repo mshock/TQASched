@@ -23,7 +23,7 @@ my $debug_mode = $cfg->report_debug;
 redirect_stderr( $cfg->report_log ) if caller && !$debug_mode;
 
 # we only need the handle for TQASched db in the report! that's all, folks!
-my ($dbh_sched) = refresh_handles( ('sched') );
+my ($dbh_sched) = refresh_handles( ('sched', 'change') );
 
 # all possible POST parameters
 my ( $headerdate, $headertime, $dbdate ) = calc_datetime();
@@ -31,7 +31,9 @@ my ( $headerdate, $headertime, $dbdate ) = calc_datetime();
 
 my $target_trans = $cfg->target_trans;
 if ($target_trans) {
-	popup($target_trans);
+	# TODO enable FTP download upon moving to a newer server
+	#popup_ftp($target_trans);
+	popup_cdb($target_trans);
 	exit;
 }
 
@@ -487,17 +489,20 @@ sub compile_table {
 
 		my $last_week_date = date_math( -7, $dbdate );
 		my $dis_filter = '';
-
+		#warn $last_week_date;
 		if ( !$is_legacy ) {
 			$dis_filter = "
 		and hist_id  > 
 			(select top 1 hist_id from update_history 
-			where sched_id = $sched_id and feed_date < '$last_week_date'
+			where sched_id = $sched_id
+			--and datediff(dd,  timestamp, '$dbdate') < 6 
+			and feed_date <= '$last_week_date'
 			order by hist_id desc)";
 		}
 		else {
-			$dis_filter
-				= "and (abs(datediff(dd, '$dbdate', cast(cast(filedate as varchar(8)) as datetime))) < 7 or filedate is null)";
+			# getting assigne the incorrect feed date
+			$dis_filter = "and feed_date > '$last_week_date'";
+				#= "--and (abs(datediff(dd, '$dbdate', cast(cast(filedate as varchar(8)) as datetime))) < 7 or filedate is null";
 		}
 		my $select_history = "
 		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum,ops_id,comments
@@ -513,6 +518,7 @@ sub compile_table {
 		
 		order by hist_id desc
 	";
+	#warn $select_history if $update_id == 102;
 		my $select_special = "
 		select hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum,ops_id,comments 
 		from update_history
@@ -575,12 +581,20 @@ sub compile_table {
 #		$tr_title .= defined $transnum && $transnum > 0 ? "distransnum = $transnum" : 'no transnum';
 #		$tr_title .= "'";
 
+		my ($jsa_open, $jsa_close)= ('')x2;
+		if ($transnum) {
+			$jsa_open = "<a href='javascript:;' onClick=\"window.open('?target_trans=$transnum', 'Transaction $transnum', 'scrollbars=yes,width=500,height=925');\">";
+			$jsa_close = '</a>';
+		}
+
 		$seq_num    ||= 'N/A';
 		$transnum   ||= 'N/A';
 		$recvd_time ||= 'N/A';
+		
+		
 		my $update_row = sprintf( "
 		<tr $tr_title class='$border_class1 $border_class2 $row_class $extra_classes'>
-			<td><a href='javascript:;' onClick=\"window.open('?target_trans=$transnum', 'Transaction $transnum', 'scrollbars=no,width=500,height=100');\">%s\t%s</a></td>
+			<td>$jsa_open%s$jsa_close\t%s</td>
 			<td>%s</td>
 			%s
 			<td>%s</td>
@@ -1013,7 +1027,110 @@ sub report_date_math {
 	return sprintf '%u-%02u-%02u', $y + 1900, $mon + 1, $mday;
 }
 
-sub popup {
+# popup upd sourced from changedb
+sub popup_cdb {
+	my ($t_transnum) = @_;
+	my ($dbh_prod1, $dbh_cdb) = refresh_handles('prod1', 'change');
+	
+	print "HTTP/1.0 200 OK\r\n";
+	print "Content-type: text/html\n\n";
+	
+	
+	my $select_transaction_query = "
+	SELECT [Id]
+      ,[TaskId]
+      ,[Sender]
+      ,[TransactionNumber]
+      ,[FeedDate]
+      ,[TaskReference]
+      ,[SeqNum]
+      ,[Options]
+      ,[Priority]
+      ,[BuildTime]
+      ,[OutputFilePath]
+      ,[FileCount]
+      ,[FileSize]
+      ,[IsLegacy]
+      ,[ProcessTime]
+      ,[Status]
+      ,[FileDate]
+      ,[FileNum]
+      ,[PackTaskId]
+  FROM [TQALIC].[dbo].[PackageQueue] with (NOLOCK)
+	where transactionnumber = $t_transnum
+";
+	my  @query_results
+		= $dbh_prod1->selectrow_array($select_transaction_query);
+		
+	my @pq_headers = qw(
+	  Id
+      TaskId
+      Sender
+      TransactionNumber
+      FeedDate
+      TaskReference
+      SeqNum
+      Options
+      Priority
+      BuildTime
+      OutputFilePath
+      FileCount
+      FileSize
+      IsLegacy
+      ProcessTime
+      Status
+      FileDate
+      FileNum
+      PackTaskId
+	);
+	
+	print "
+	<html>
+		<head>
+			<title>Transaction Number: $t_transnum</title>
+			<meta http-equiv='refresh' content='300' >
+			<link rel='stylesheet' type='text/css' href='styles.css' />
+		</head>	
+		<body>
+	<table class='popup'>
+	";
+	
+	my $count = 0;
+	for my $header (@pq_headers) {
+		my $result = $query_results[$count++];
+		print "
+			<tr>
+				<th>
+				$header
+				<th>
+			</tr>
+			<tr>
+				<td>
+				$result
+				</td>
+			</tr>
+		"
+	}
+#	
+#	my $cdb_query = "select * from changedb_current"
+#	
+#	$dbh_cdb->selectall_arrayref();
+	
+	print "
+	</table>
+	<table>
+		<tr>
+			<td>UPD:</td>
+			<td>not yet supported</td>
+		</tr>
+	</table>
+	</body>
+	</html>
+	";	
+}
+
+# popup upd sourced from FTP download
+sub popup_ftp {
 	my ($t_transnum) = @_;
 
 
@@ -1066,26 +1183,26 @@ sub popup {
 	move( $local_file, "Files/$local_file" );
 
 	print "
-<html>
-	<head>
-		<title>Transaction Number: $t_transnum</title>
-		<meta http-equiv='refresh' content='300' >
-		<link rel='stylesheet' type='text/css' href='styles.css' />
-	</head>	
-	<body>
-		<table>
-			<tr>
-				<td>Output File:</td>
-				<td><a href='$local_file' class='download'>$local_file</a></td>
-			</tr>
-			<tr>
-				<td>UPD:</td>
-				<td>not yet supported</td>
-			</tr>
-		</table>
-	</body>
-</html>
-";
+	<html>
+		<head>
+			<title>Transaction Number: $t_transnum</title>
+			<meta http-equiv='refresh' content='300' >
+			<link rel='stylesheet' type='text/css' href='styles.css' />
+		</head>	
+		<body>
+			<table>
+				<tr>
+					<td>Output File:</td>
+					<td><a href='$local_file' class='download'>$local_file</a></td>
+				</tr>
+				<tr>
+					<td>UPD:</td>
+					<td>not yet supported</td>
+				</tr>
+			</table>
+		</body>
+	</html>
+	";
 }
 
 # return the host for the FTP path to file

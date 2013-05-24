@@ -9,7 +9,10 @@ h1 {
   color:black;
   text-align:left;
 }
-
+table.popup {
+	border: 1px solid black;
+	background: lightblue;
+}
 table.debug {
 	padding-top: 10;
 	border: 5px solid crimson;

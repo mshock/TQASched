@@ -492,12 +492,12 @@ sub compile_table {
 		#warn $last_week_date;
 		if ( !$is_legacy ) {
 			$dis_filter = "
-		and hist_id  > 
-			(select top 1 hist_id from update_history 
+		and seq_num  > 
+			(select top 1 seq_num from update_history 
 			where sched_id = $sched_id
 			--and datediff(dd,  timestamp, '$dbdate') < 6 
 			and feed_date <= '$last_week_date'
-			order by hist_id desc)";
+			order by seq_num desc)";
 		}
 		else {
 			# getting assigne the incorrect feed date
@@ -518,7 +518,7 @@ sub compile_table {
 		
 		order by hist_id desc
 	";
-	#warn $select_history if $update_id == 102;
+	#warn $select_history if $update_id == 59	;
 		my $select_special = "
 		select hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum,ops_id,comments 
 		from update_history
@@ -827,7 +827,7 @@ sub row_info {
 
 	# late check on all updates that are still in wait state by this point
 	elsif ( !defined $late && $status eq 'wait' ) {
-		my $display_late = time > sched_epoch( $sched_offset, $dbdate );
+		my $display_late = gmtime > sched_epoch( $sched_offset, $dbdate );
 		$row_class = ( $is_legacy
 					   ? ( $display_late ? 'error' : 'wait' )
 					   : ( $display_late ? 'late' : 'wait' )

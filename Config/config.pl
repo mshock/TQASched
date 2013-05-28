@@ -99,7 +99,7 @@ sub define_defaults {
 
 		# look at the previous day first before attempting to store current for prev_date feeds
 		daemon_lookbehind => {
-			DEFAULT => 1,
+			DEFAULT => 0,
 			ARGS => '!',
 			ALIAS => 'lookbehind',
 		},

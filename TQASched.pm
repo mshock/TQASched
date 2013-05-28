@@ -2301,7 +2301,7 @@ sub refresh_dis {
 #		my $filter_sched
 #			= " and ( (us.weekday = $current_wd and u.prev_date != 1) or (us.weekday = $next_wd and u.prev_date = 1 ))";
 
-		my $filter_sched
+		my $filter_sched #= " and us.weekday = $current_wd";
 			= " and ( (us.weekday = $current_wd) or (us.weekday = $next_wd and u.prev_date = 1 ))";
 
 #		if (defined $prev_date && $prev_date == 1) {
@@ -2338,7 +2338,7 @@ sub refresh_dis {
 		and us.enabled = 1
 		$filter_sched
 		";
-		dsay $expected;
+		#dsay $expected;
 		my $sth_expected = $dbh_sched->prepare($expected);
 		$sth_expected->execute();
 		my $updates_aref = $sth_expected->fetchall_arrayref();
@@ -2412,6 +2412,9 @@ sub refresh_dis {
 
 					#	}
 				}
+				else {
+					say "\talready stored $sched_id :: $target_date_string"
+				}
 				next;
 			}
 			else {
@@ -2473,8 +2476,6 @@ sub refresh_dis {
 						 && $sched_id != $psched_id
 						 && !$wd_prev_flag )
 					{
-						say
-							"\tmoved sched_id $sched_id to $psched_id offset: $offset to $poffset";
 						my $rollover = $sched_id > $psched_id;
 
 				# RKD special case, needs to use the 2 offsets in the future
@@ -2492,7 +2493,8 @@ sub refresh_dis {
 				#						}
 				#						# everyone else gets immediate next offset
 				#						else {
-						if ( $rollover && $current_wd == 6 && $prev_date ) {
+					# TODO investigate this issue on weekends
+						if ( ($rollover && $current_wd == 6 && $prev_date) || ($current_wd == 2 && $prev_date && $feed_id =~ m/^(DS|FE_US_DAILY|NF_DAILY)/)) {
 
 							#if ( $rollover && $prev_date ) {
 							say
@@ -2501,6 +2503,9 @@ sub refresh_dis {
 	   #"\tweek rollover detected on sunday, no sched_id or offset overwrite";
 						}
 						elsif ( !$rollover ) {
+							say
+							"\tmoved sched_id $sched_id to $psched_id offset: $offset to $poffset";
+						
 							$offset   = $poffset;
 							$sched_id = $psched_id;
 						}
@@ -2579,10 +2584,10 @@ sub refresh_dis {
 # rewind Data Explorers (DXL_Daily) an extra time
 # TODO figure out DXL
 #if ( $update_id == 156 || $update_id == 432 || $update_id == 433 || $update_id == 434 || $update_id == 431 || $update_id == 184 || $update_id == 189 || $update_id == 272 || $update_id == 282 ) {
-			if ((  $update_id == 156 || $update_id == 176 || $update_id == 271
+			if ((  $update_id == 156 || $update_id == 176 || $update_id == 271 
 				)
 				|| ( $update_id == 272)
-				|| ( $feed_id =~ m/^RKDGF/ && $current_wd != 0 )
+				|| ( $feed_id =~ m/^RKDGF_B/ && $current_wd != 0 ) 
 				)
 			{
 
@@ -2853,13 +2858,14 @@ sub refresh_dis {
 #					"\t[2] no transaction # found for enum feed $name, $sender skipping\n$transactions\n"
 #					and next;
 #					if (defined $feed_date) {
-					( $feed_year, $feed_mon, $feed_day )
-						= ( $feed_date =~ m/(\d+)-(\d+)-(\d+)/ );
-					my ( $dfeed_year, $dfeed_mon, $dfeed_day )
-						= ( $dis_feed_date =~ m/(\d+)-(\d+)-(\d+)/ );
-					dsay( $feed_year,  $feed_mon,  $feed_day );
-					dsay( $dfeed_year, $dfeed_mon, $dfeed_day );
-
+					if ($feed_date) {
+						( $feed_year, $feed_mon, $feed_day )
+							= ( $feed_date =~ m/(\d+)-(\d+)-(\d+)/ );
+						my ( $dfeed_year, $dfeed_mon, $dfeed_day )
+							= ( $dis_feed_date =~ m/(\d+)-(\d+)-(\d+)/ );
+						dsay( $feed_year,  $feed_mon,  $feed_day );
+						dsay( $dfeed_year, $dfeed_mon, $dfeed_day );
+					}
 					#					}
 				}
 				else {

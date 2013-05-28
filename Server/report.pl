@@ -827,7 +827,7 @@ sub row_info {
 
 	# late check on all updates that are still in wait state by this point
 	elsif ( !defined $late && $status eq 'wait' ) {
-		warn "$sched_offset $dbdate\n";
+		#warn "$sched_offset $dbdate\n";
 		my $display_late = time > sched_epoch( $sched_offset, $dbdate );
 		$row_class = ( $is_legacy
 					   ? ( $display_late ? 'error' : 'wait' )

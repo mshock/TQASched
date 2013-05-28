@@ -2494,7 +2494,7 @@ sub refresh_dis {
 				#						# everyone else gets immediate next offset
 				#						else {
 					# TODO investigate this issue on weekends
-						if ( ($rollover && $current_wd == 6 && $prev_date) || ($current_wd == 2 && $prev_date && $feed_id =~ m/^(DS|FE_US_DAILY|NF_DAILY)/)) {
+						if ( ($rollover && $current_wd == 6 && $prev_date) || ($current_wd == 2 && $prev_date && $feed_id =~ m/^(DS|NF_DAILY)/)) {
 
 							#if ( $rollover && $prev_date ) {
 							say
@@ -3269,7 +3269,7 @@ sub refresh_legacy {
 
 			# adjust feed date according to weekday
 			$feed_date
-				= legacy_feed_date( $weekday_code, $feed_date, $prev_date );
+				= legacy_feed_date( $weekday_code, $sched_xls );
 
 			# if it's within an hour of the scheduled time, mark as on time
 			# could also be early
@@ -3482,33 +3482,43 @@ sub pause_mode {
 
 # calculate a particular DoW's feed date
 sub legacy_feed_date {
-	my ( $excel_wd, $curr_date, $prev_date ) = @_;
-
-	#	$curr_date = date_math(-1, $curr_date) if $prev_date;
-	my $curr_wd = get_wd($curr_date);
-
-	#say "curr wd: $curr_wd excel wd: $excel_wd";
-	my $delta = 0;
-
-	# this is today (supposedly)
-	if ( $curr_wd == $excel_wd ) {
-
-		#say "same day";
-		return $curr_date;
-	}
-
-	# sunday is actually at the 'end' of the week
-	elsif ( $curr_wd == 0 ) {
-		#say "curr_wd = 0";
-		$delta = -7 + $excel_wd;
-	}
-	elsif ( $excel_wd == 0 ) {
-		#say "excel_wd = 0";
-		$delta = $curr_wd - 7;
+	my ( $excel_wd, $sched_xls ) = @_;
+	
+	if ($excel_wd == 0) {
+		$excel_wd = 6;
 	}
 	else {
-		$delta = $excel_wd - $curr_wd;
+		$excel_wd--;
 	}
+	
+	my ($monday_date) = $sched_xls =~ m/dailychecklist_(\d+)/i;
+	return date_math($excel_wd, $monday_date);
+#
+#	#	$curr_date = date_math(-1, $curr_date) if $prev_date;
+#	my $curr_wd = get_wd($curr_date);
+#
+#	#say "curr wd: $curr_wd excel wd: $excel_wd";
+#	my $delta = 0;
+#
+#	# this is today (supposedly)
+#	if ( $curr_wd == $excel_wd ) {
+#
+#		#say "same day";
+#		return $curr_date;
+#	}
+#
+#	# sunday is actually at the 'end' of the week
+#	elsif ( $curr_wd == 0 ) {
+#		#say "curr_wd = 0";
+#		$delta = -7 + $excel_wd;
+#	}
+#	elsif ( $excel_wd == 0 ) {
+#		#say "excel_wd = 0";
+#		$delta = $curr_wd - 7;
+#	}
+#	else {
+#		$delta = $excel_wd - $curr_wd;
+#	}
 
 	# looking at past day in sheet
 	#	elsif ( $curr_wd > $excel_wd ) {
@@ -3522,7 +3532,7 @@ sub legacy_feed_date {
 
 	#say "delta: $delta";
 
-	return date_math( $delta, $curr_date );
+	#return date_math( $delta, $curr_date );
 }
 
 # do date math in day increments

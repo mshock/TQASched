@@ -492,12 +492,12 @@ sub compile_table {
 		#warn $last_week_date;
 		if ( !$is_legacy ) {
 			$dis_filter = "
-		and seq_num  > 
-			(select top 1 seq_num from update_history 
-			where sched_id = $sched_id
-			--and datediff(dd,  timestamp, '$dbdate') < 6 
-			and feed_date <= '$last_week_date'
-			order by seq_num desc)";
+	--	and seq_num  > 
+	--		(select top 1 seq_num from update_history 
+	--		where sched_id = $sched_id
+	--		--and datediff(dd,  timestamp, '$dbdate') < 6 
+	--		and feed_date <= '$last_week_date'
+	--		order by seq_num desc)";
 		}
 		else {
 			# getting assigne the incorrect feed date
@@ -518,7 +518,7 @@ sub compile_table {
 		
 		order by hist_id desc
 	";
-	#warn $select_history if $update_id == 59	;
+	#warn $select_history if $update_id == 4	;
 		my $select_special = "
 		select hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum,ops_id,comments 
 		from update_history

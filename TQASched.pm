@@ -2538,7 +2538,7 @@ sub refresh_dis {
 			if ($update_id == 156 || $update_id == 432 || $update_id == 433) {
 				$target_date_string = date_math (-2, $target_date_string);
 			}
-			elsif ($feed_id =~ m/^(FC_|SPGICS_|Deal_Daily|USINS_|FI_CDSTR|TK2_)/i) {
+			elsif ($feed_id =~ m/^(FC_|SPGICS_|Deal_Daily|USINS_|FI_CDSTR|TK2_|INS_)/i) {
 					
 			}
 			elsif ($feed_id =~ m/SM2_/i && $update_id != 70 && $update_id != 69 && $update_id != 194 && $update_id != 195) {

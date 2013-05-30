@@ -71,8 +71,8 @@ our @CLI = @ARGV;
 # shared database info loaded from configs
 # so that importers can create their own handles
 # INV: may be completely unecessary! kind of a scoping grey area - test when time
-our @db_hrefs = my ( $sched_db, $auh_db,  $prod1_db, $dis1_db,
-					 $dis2_db,  $dis3_db, $dis4_db,  $dis5_db, $change_db );
+our @db_hrefs = my ( $sched_db, $auh_db,  $prod1_db, $dis1_db, $dis2_db,
+					 $dis3_db,  $dis4_db, $dis5_db,  $change_db );
 
 # require/use bounce
 # return if being imported as module rather than run directly - also snarky import messages are fun
@@ -402,7 +402,7 @@ sub refresh_handles {
 			when (m/dis3/i)     { push @refresh_list, $dis3_db }
 			when (m/dis4|tt3/i) { push @refresh_list, $dis4_db }
 			when (m/dis5|tt5/i) { push @refresh_list, $dis5_db }
-			when (m/change/) { push @refresh_list, $change_db }
+			when (m/change/)    { push @refresh_list, $change_db }
 			default {
 				say "trying to refresh unrecognized handle: $_ from "
 					. (caller)[1];
@@ -857,7 +857,7 @@ sub get_wd {
 # gets the sched_id of the next day given sched_id of current
 # TODO make this work for odd schedules
 sub next_sched_offset {
-	my $sched_id = shift;
+	my $sched_id  = shift;
 	my $direction = shift;
 	$direction ||= 1;
 
@@ -1713,9 +1713,10 @@ sub load_conf {
 	$cfg->pod( find_pod_usage($cfg) );
 
 	# get hashes of database connection information
-	(  $sched_db,  $prod1_db, $dis1_db,
-	   $dis2_db,  $dis3_db, $dis4_db,  $dis5_db, $change_db )
-		= map { get_handle_hash($_) } qw(sched_db prod1_db 1 2 3 4 5 change_db);
+	(  $sched_db, $prod1_db, $dis1_db, $dis2_db,
+	   $dis3_db,  $dis4_db,  $dis5_db, $change_db )
+		= map { get_handle_hash($_) }
+		qw(sched_db prod1_db 1 2 3 4 5 change_db);
 
 	return $cfg;
 }
@@ -2304,7 +2305,8 @@ sub refresh_dis {
 #			= " and ( (us.weekday = $current_wd and u.prev_date != 1) or (us.weekday = $next_wd and u.prev_date = 1 ))";
 
 		my $filter_sched = " and us.weekday = $current_wd";
-			#= " and ( (us.weekday = $current_wd) or (us.weekday = $next_wd and u.prev_date = 1 ))";
+
+#= " and ( (us.weekday = $current_wd) or (us.weekday = $next_wd and u.prev_date = 1 ))";
 
 #		if (defined $prev_date && $prev_date == 1) {
 #			$filter_sched = sprintf 'and us.weekday = %u', shift_wd($current_wd,1);
@@ -2340,6 +2342,7 @@ sub refresh_dis {
 		and us.enabled = 1
 		$filter_sched
 		";
+
 		#dsay $expected;
 		my $sth_expected = $dbh_sched->prepare($expected);
 		$sth_expected->execute();
@@ -2415,7 +2418,7 @@ sub refresh_dis {
 					#	}
 				}
 				else {
-					say "\nalready stored $sched_id :: $target_date_string"
+					say "\nalready stored $sched_id :: $target_date_string";
 				}
 				next;
 			}
@@ -2507,7 +2510,7 @@ sub refresh_dis {
 #						elsif ( !$rollover ) {
 #							say
 #							"\tmoved sched_id $sched_id to $psched_id offset: $offset to $poffset";
-#						
+#
 #							$offset   = $poffset;
 #							$sched_id = $psched_id;
 #						}
@@ -2534,27 +2537,129 @@ sub refresh_dis {
 #				#					}
 #			}
 
-			# really strange feed dates go here
-			if ($update_id == 156 || $update_id == 432 || $update_id == 433) {
-				$target_date_string = date_math (-2, $target_date_string);
+			# handle non-enum feeds
+			#if (!$build_num) {
+			if ( $current_wd == 1 ) {
+				 if (    $update_id == 16
+					  || $update_id == 19
+					  || $update_id == 434
+					  || $update_id == 61
+					  || $update_id == 362
+					  || $update_id == 233 
+					  || $update_id == 194
+					  || $update_id == 195
+				)
+					{
+						$target_date_string = date_math( -3, $target_date_string );
+					}
 			}
-			elsif ($feed_id =~ m/^(FC_|SPGICS_|Deal_Daily|USINS_|FI_CDSTR|TK2_|INS_)/i) {
-					
+
+			elsif ($current_wd == 2 && ($update_id == 173)) {
+				$target_date_string = date_math(-4, $target_date_string);
 			}
-			elsif ($feed_id =~ m/SM2_/i && $update_id != 70 && $update_id != 69 && $update_id != 194 && $update_id != 195) {
-				
+			elsif ($update_id == 156)  {
+				if ($current_wd == 1) {
+					$target_date_string = date_math( -4, $target_date_string );
+				}
+				else{
+					$target_date_string = date_math(-2, $target_date_string);
+				}
 			}
-			elsif ($feed_id =~ m/^MSCI_DAILY/i && $update_id != 16) {
-				
+			elsif ($prev_date) {
+				$target_date_string = date_math( -1, $target_date_string );
 			}
-			elsif  ( !$prev_date) {
-				$target_date_string = date_math(-1, $target_date_string);
+			else {
+				$target_date_string = $target_date_string;
 			}
-			
+
+			#			}
+			#			else {
+			#				$target_date_string = date_math(-1, $target_date_string);
+			#			}
+
+#			# really strange feed dates go here
+#			# saturday feed dates (both enum and non)
+#			if ( $current_wd == 6
+#				 && ( $feed_id =~ m/^(RKDGF_OND_D)/i ) )
+#			{
+#				say "\tsaturday -1";
+#				$target_date_string = date_math( -1, $target_date_string );
+#			}
+#
+#			# sunday feed dates
+#			elsif ( $current_wd == 0
+#					&& ( $feed_id =~ m/^(RKDGF_OND_D|RKDFND_DAILY_INC|TRI_DAILY|ECON_DAILY)/i ) )
+#			{
+#				say "\tsunday -2";
+#				$target_date_string = date_math( -2, $target_date_string );
+#			}
+#
+#			# monday feed dates
+#			elsif ( $current_wd == 1
+#					&& (    $update_id == 61
+#						 || $update_id == 70
+#						 || $update_id == 69
+#						 || $update_id == 16
+#						 || $update_id == 18
+#						 || $update_id == 19
+#						 || $update_id == 101
+#						 || $update_id == 156
+#						 || $update_id == 182
+#						 || $update_id == 194
+#						 || $update_id == 195
+#						 || $update_id == 219
+#						 || $feed_id =~ m/^RKDGF_OND_D/i
+#						)
+#				)
+#			{
+#				say "\tmonday -3";
+#				$target_date_string = date_math( -3, $target_date_string );
+#			}
+#			elsif (($update_id == 432 || $update_id == 433 ) && $current_wd == 2) {
+#				say "\ttues -4 RKD";
+#				$target_date_string = date_math(-4, $target_date_string);
+#			}
+#
+#
+#			elsif (    $update_id == 156
+#					|| $update_id == 432
+#					|| $update_id == 433 )
+#			{
+#				say "\tall -2";
+#				$target_date_string = date_math( -2, $target_date_string );
+#			}
+#
+#			elsif ( $feed_id
+#				=~ m/^(FC_|SPGICS_|Deal_Daily|USINS_|FI_CDSTR|TK2_|INS_|OWN_InvF|SNPASX_DAILY|BARRA_DAILY|SSR_DAILY|IBESV2_Weekly|MSCI_EOW_EM|SSR_WeeklyCorrection)/i
+#				)
+#			{
+#				say "\tall +0";
+#			}
+#			# starmine non-enum fix
+#			elsif (    $feed_id =~ m/SM2_/i
+#					&& $update_id != 70
+#					&& $update_id != 69
+#					&& $update_id != 194
+#					&& $update_id != 195 )
+#			{
+#				say "\tall +0 SM"
+#			}
+#			elsif ( $feed_id =~ m/^MSCI_DAILY/i && $update_id != 16 ) {
+#				say "\tall +0 MSCI";
+#			}
+#			elsif ( !$prev_date
+#					|| ( $current_wd == 2
+#						 && ( $feed_id =~ m/^(RKDGF_OND_D|RKDGF_Comp_D|RKDGF_LongDesc_D)/i || ($feed_id =~ m/^DS/i && $prev_date)) )
+#				)
+#			{
+#				$target_date_string = date_math( -1, $target_date_string );
+#				say "\t!prev / tues RKD_OND_D -1";
+#			}
+
+			say "\tsched_feed_date = $target_date_string";
 
 #my $sched_feed_date = $prev_date ? sched_id2feed_date($sched_id, $target_date_string, -1) : $target_date_string;
 			my $sched_feed_date = $target_date_string;
-			
 
 #			if ($prev_date && !$build_num && $current_wd > 1) {
 #				#if ( $current_wd > 1  || $feed_id =~ m/^RKDGF/ ) {
@@ -2605,10 +2710,10 @@ sub refresh_dis {
 # rewind Data Explorers (DXL_Daily) an extra time
 # TODO figure out DXL
 #if ( $update_id == 156 || $update_id == 432 || $update_id == 433 || $update_id == 434 || $update_id == 431 || $update_id == 184 || $update_id == 189 || $update_id == 272 || $update_id == 282 ) {
-#			if ((  $update_id == 156 || $update_id == 176 || $update_id == 271 
+#			if ((  $update_id == 156 || $update_id == 176 || $update_id == 271
 #				)
 #				|| ( $update_id == 272)
-#				|| ( $feed_id =~ m/^RKDGF_B/ && $current_wd != 0 ) 
+#				|| ( $feed_id =~ m/^RKDGF_B/ && $current_wd != 0 )
 #				)
 #			{
 #
@@ -2653,15 +2758,15 @@ sub refresh_dis {
 			# loop until last feed date
 			#my $trans_rewinds = 0;
 			#until ($trans_num) {
-#				if ($trans_rewinds++) {
-#					say "\tgot previous day";
-#					next;
+			#				if ($trans_rewinds++) {
+			#					say "\tgot previous day";
+			#					next;
 ##						my ( $psched_id, $poffset ) = prev_sched_offset($sched_id);
 ##						say "\t$sched_id -> $psched_id :: $offset => $poffset";
 ##						$sched_id = $psched_id;
 ##						$offset = $poffset;
-#				}
-				my $transactions = "
+			#				}
+			my $transactions = "
 			select top 1 Status, BuildTime, FileDate, FileNum, Sender, TransactionNumber, ProcessTime, FeedDate, SeqNum, filesize 
 			from [TQALic].dbo.[PackageQueue] 
 			with (NOLOCK)
@@ -2670,26 +2775,28 @@ sub refresh_dis {
 			and status != 0
 			order by SeqNum desc
 		";
-				#say $transactions;
+
+			#say $transactions;
 
  #say $transactions;
  #--	and feeddate = DateAdd(dd, $feed_date_rewind, '${tyear}${tmonth}${tday}')
-				(  $status,  $exec_end,  $fd,         $fn,
-				   $sender,  $trans_num, $build_time, $feed_date,
-				   $seq_num, $filesize
-				) = $dbh_prod1->selectrow_array($transactions);
+			(  $status,  $exec_end,  $fd,         $fn,
+			   $sender,  $trans_num, $build_time, $feed_date,
+			   $seq_num, $filesize
+			) = $dbh_prod1->selectrow_array($transactions);
 
-				if (!$trans_num) {
-					say "\tno trans_num found for $feed_date_filter";
-					next;
-				}
+			if ( !$trans_num ) {
+				say "\tno trans_num found for $feed_date_filter";
+				next;
+			}
 
-				dsay( $status,  $exec_end,  $fd,         $fn,
-					  $sender,  $trans_num, $build_time, $feed_date,
-					  $seq_num, $filesize
-				);
-				$working_date = date_math( -1, $working_date );
-				$feed_date_filter = " and feeddate = '$working_date'";
+			dsay( $status,  $exec_end,  $fd,         $fn,
+				  $sender,  $trans_num, $build_time, $feed_date,
+				  $seq_num, $filesize
+			);
+			$working_date = date_math( -1, $working_date );
+			$feed_date_filter = " and feeddate = '$working_date'";
+
 			#}
 
 			#			if (defined $status && $status == 0) {
@@ -2703,24 +2810,24 @@ sub refresh_dis {
 				$exec_end = $build_time;
 			}
 
-			# handle non-enums that are from the previous day
-#			if (!$build_num ) {
-#				
-#				my ( $psched_id, $poffset ) = prev_sched_offset($sched_id);
-#				if ($prev_date) {
-#					#$update_id != 18 && $update_id != 16 && $update_id != 19) {  
-#					say "\tnon-enum $sched_id -> $psched_id :: $offset => $poffset";
-#					$sched_id = $psched_id;
-#					$offset = $poffset;
-#				}
+		# handle non-enums that are from the previous day
+		#			if (!$build_num ) {
+		#
+		#				my ( $psched_id, $poffset ) = prev_sched_offset($sched_id);
+		#				if ($prev_date) {
+		#					#$update_id != 18 && $update_id != 16 && $update_id != 19) {
+		#					say "\tnon-enum $sched_id -> $psched_id :: $offset => $poffset";
+		#					$sched_id = $psched_id;
+		#					$offset = $poffset;
+		#				}
 ##				my ($nsched_id, $noffset) = next_sched_offset($sched_id);
 ##				if ($prev_date && abs($noffset - $offset) <= 86400) {
 ##					say "\t$sched_id -> $nsched_id :: $offset => $noffset";
 ##					$sched_id = $nsched_id;
 ##					$offset = $noffset;
-##					
+##
 ##				}
-#			}
+			#			}
 
 			# handle daily (non-enum) empty feeds now and go to next
 			if ( !$filesize && $status && !$build_num ) {
@@ -2791,25 +2898,95 @@ sub refresh_dis {
 			  #if ( is_weekend($current_wd) ) {
 			  # seems like feed_date should start at the target date if monday
 			  #				if ($current_wd <= 1) {
-				#if ( !$prev_date ) {
+			  #if ( !$prev_date ) {
 
-					# || ($prev_date && $wd_prev_flag)) {
-					#say "\tnon-prev_date enum rewind";
-				#if (!$prev_date) {						|SPGICS_|Deal_Daily|USINS_|FI_CDSTR|TK2_|
-				if (!$prev_date && $feed_id =~ m/^(DS|RKDGF_SigDev|RKDFND_DAILY|ECON_DAILY|OWN_|INS_|SNPASX_|BARRA_|TRI_|RKDGF_)/) {
-					$sched_feed_date = date_math(1, $target_date_string);
-				}
-				else{
-					$sched_feed_date =
-						sched_id2feed_date( $sched_id, $target_date_string #, date_math(-1, $target_date_string)
-									 # $sched_id, date_math(-2, $target_date_string)
-									  #( $wd_prev_flag
-									#	? date_math( 1, $target_date_string )
-									#	: $target_date_string
-									 # )
-						);
-				}
+				# || ($prev_date && $wd_prev_flag)) {
+
+#				if ( $current_wd == 1
+#					 && ( $feed_id =~ m/^(RKDGF_OND_D|RKDFND_DAILY_INC)/i || $update_id == 286 ) )
+#				{
+#						#say "$target_date_string";
+#					$sched_feed_date = date_math( 3, $target_date_string );
+#					#say $sched_feed_date;
+#				}
+#
+#				#say "\tnon-prev_date enum rewind";
+#				elsif ( $current_wd == 6
+#					 && ( $feed_id =~ m/^(RKDGF_OND_D)/i  ) )
+#				{
+#					$sched_feed_date = date_math( 1, $target_date_string );
+#				}
+#				elsif ($current_wd == 6 && !$prev_date && $feed_id =~ m/^RKDGF_BGSMC/) {
+#						say "\tsaturday +1 RKD BGS";
+#						$sched_feed_date = date_math(1, $target_date_string);
+#
+#				}
+#				elsif ($current_wd == 6 && $prev_date && $feed_id =~ m/^RKDGF_BGSMC/) {
+#						say "\tsaturday -1 RKD BGS";
+#						$sched_feed_date = date_math(-1, $target_date_string);
+#
+#				}
+#				elsif ( $current_wd == 0
+#						&& $prev_date && ( $feed_id =~ m/^(RKDGF_BGSMC)/i ) )
+#				{
+#					say "\tsunday -1 RKD BGS";
+#					$sched_feed_date = date_math( -1, $target_date_string );
+#				}
+#				elsif ( $current_wd == 0
+#						&& !$prev_date && ( $feed_id =~ m/^(RKDGF_BGSMC)/i ) )
+#				{
+#					say "\tsunday +1 RKD BGS";
+#					$sched_feed_date = date_math( 1, $target_date_string );
+#				}
+#				# handle enum sunday
+#				elsif ( $current_wd == 0
+#						&& ( $feed_id =~ m/^(RKDGF_OND_D)/i ) )
+#				{
+#					$sched_feed_date = date_math( 0, $target_date_string );
+#				}
+#				elsif ( $current_wd == 2
+#						&& ( $feed_id =~ m/^(RKDGF_OND_D)/i || ($feed_id =~ m/^DS/i && $prev_date) ) )
+#				{
+#
+#					#$sched_feed_date = date_math(0, $target_date_string);
+#					#say $sched_feed_date;
+#				}
+#				elsif ( $current_wd == 0 && $feed_id =~ m/^(RKDFND_DAILY_INC)/i) {
+#					$sched_feed_date = date_math( 2, $target_date_string );
+#				}
+#			#if (!$prev_date) {						|SPGICS_|Deal_Daily|USINS_|FI_CDSTR|TK2_|
+#				elsif ( !$prev_date
+#					&& $feed_id
+#					=~ m/^(DS|RKDGF_SigDev|RKDFND_DAILY|ECON_DAILY|OWN_|INS_|SNPASX_|BARRA_|TRI_|RKDGF_)/
+#					)
+#				{
+#					$sched_feed_date = date_math( 1, $target_date_string );
+#				}
+#
+#				# handle enum saturday special cases
+#				#							RKDGF_OND_D #5
+#
+#   #				# handle enum monday, feed date rewinds need to be reverted to target
+#   #				elsif ($current_wd == 1 && ($update_id == 68 || $update_id == 129 )) {
+#   #					$sched_feed_date = date_math(0, $target_date_string);
+#   #				}
+#				else {
+#					$sched_feed_date = sched_id2feed_date(
+#						$sched_id,
+#						$target_date_string #, date_math(-1, $target_date_string)
+#							   # $sched_id, date_math(-2, $target_date_string)
+#							   #( $wd_prev_flag
+#							   #	? date_math( 1, $target_date_string )
+#							   #	: $target_date_string
+#							   # )
+#					);
+#				}
+
 				#}
+				#				if (!$prev_date)  {
+				#					$sched_feed_date = date_math(1, $target_date_string);
+				#				}
+
 				$feed_date_filter = "and FeedDate = '$sched_feed_date'";
 
 #				#}
@@ -2847,15 +3024,16 @@ sub refresh_dis {
 
 					#if ($prev_date) {
 					$sched_feed_date = date_math( -1, $sched_feed_date );
-					my ( $psched_id, $poffset ) = prev_sched_offset($sched_id);
-					if (!$prev_date) {  
-						say "\tenum $sched_id -> $psched_id :: $offset => $poffset";
+					my ( $psched_id, $poffset )
+						= prev_sched_offset($sched_id);
+					if ( !$prev_date ) {
+						say
+							"\tenum $sched_id -> $psched_id :: $offset => $poffset";
 						$sched_id = $psched_id;
-						$offset = $poffset;
-						
+						$offset   = $poffset;
+
 					}
-					
-					
+
 			  #}
 			  #					else {
 			  #						sched_id2feed_date( $sched_id,
@@ -2935,6 +3113,7 @@ sub refresh_dis {
 						dsay( $feed_year,  $feed_mon,  $feed_day );
 						dsay( $dfeed_year, $dfeed_mon, $dfeed_day );
 					}
+
 					#					}
 				}
 				else {
@@ -3234,12 +3413,11 @@ sub refresh_legacy {
 			# correct weekday for border cases
 			my $border_flag = 0;
 			my $tmp_weekday_code;
-			if ($update_id == 406
-				|| $update_id == 407
+			if (    $update_id == 406
+				 || $update_id == 407
 				 || $update_id == 405
-				|| $update_id == 403 
-				|| $update_id == 408
-				)
+				 || $update_id == 403
+				 || $update_id == 408 )
 			{
 				dsay "\tfixing border weekday from $weekday_code"
 					unless $tsched_id;
@@ -3337,8 +3515,7 @@ sub refresh_legacy {
 			#my $cmp_result = comp_offsets( $trans_offset, $sched_offset );
 
 			# adjust feed date according to weekday
-			$feed_date
-				= legacy_feed_date( $weekday_code, $sched_xls );
+			$feed_date = legacy_feed_date( $weekday_code, $sched_xls );
 
 			# if it's within an hour of the scheduled time, mark as on time
 			# could also be early
@@ -3419,7 +3596,7 @@ sub store_legacy_special {
 		 $filenum,   $special, $ops_id,    $comments )
 		= map { $row_href->{$_} }
 		qw(ingestion tt_no trans_num task_ref filedate filenum special id comments);
-	unless ($special && $trans_num ) {
+	unless ( $special && $trans_num ) {
 		say 'this special upd not yet packaged, skipping';
 		return;
 	}
@@ -3552,42 +3729,43 @@ sub pause_mode {
 # calculate a particular DoW's feed date
 sub legacy_feed_date {
 	my ( $excel_wd, $sched_xls ) = @_;
-	
-	if ($excel_wd == 0) {
+
+	if ( $excel_wd == 0 ) {
 		$excel_wd = 6;
 	}
 	else {
 		$excel_wd--;
 	}
-	
+
 	my ($monday_date) = $sched_xls =~ m/dailychecklist_(\d+)/i;
-	return date_math($excel_wd, $monday_date);
-#
-#	#	$curr_date = date_math(-1, $curr_date) if $prev_date;
-#	my $curr_wd = get_wd($curr_date);
-#
-#	#say "curr wd: $curr_wd excel wd: $excel_wd";
-#	my $delta = 0;
-#
-#	# this is today (supposedly)
-#	if ( $curr_wd == $excel_wd ) {
-#
-#		#say "same day";
-#		return $curr_date;
-#	}
-#
-#	# sunday is actually at the 'end' of the week
-#	elsif ( $curr_wd == 0 ) {
-#		#say "curr_wd = 0";
-#		$delta = -7 + $excel_wd;
-#	}
-#	elsif ( $excel_wd == 0 ) {
-#		#say "excel_wd = 0";
-#		$delta = $curr_wd - 7;
-#	}
-#	else {
-#		$delta = $excel_wd - $curr_wd;
-#	}
+	return date_math( $excel_wd, $monday_date );
+
+	#
+	#	#	$curr_date = date_math(-1, $curr_date) if $prev_date;
+	#	my $curr_wd = get_wd($curr_date);
+	#
+	#	#say "curr wd: $curr_wd excel wd: $excel_wd";
+	#	my $delta = 0;
+	#
+	#	# this is today (supposedly)
+	#	if ( $curr_wd == $excel_wd ) {
+	#
+	#		#say "same day";
+	#		return $curr_date;
+	#	}
+	#
+	#	# sunday is actually at the 'end' of the week
+	#	elsif ( $curr_wd == 0 ) {
+	#		#say "curr_wd = 0";
+	#		$delta = -7 + $excel_wd;
+	#	}
+	#	elsif ( $excel_wd == 0 ) {
+	#		#say "excel_wd = 0";
+	#		$delta = $curr_wd - 7;
+	#	}
+	#	else {
+	#		$delta = $excel_wd - $curr_wd;
+	#	}
 
 	# looking at past day in sheet
 	#	elsif ( $curr_wd > $excel_wd ) {

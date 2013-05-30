@@ -518,7 +518,7 @@ sub compile_table {
 		
 		order by hist_id desc
 	";
-	#warn $select_history if $update_id == 4	;
+	warn $select_history if $update_id == 195	;
 		my $select_special = "
 		select hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum,ops_id,comments 
 		from update_history

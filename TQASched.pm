@@ -2164,8 +2164,7 @@ sub refresh_dis {
 
 			my $feed_date_filter = '';
 
-			if ( $current_wd == 1 ) {
-				 if (    $update_id == 16
+			if ( $current_wd == 1 && (    $update_id == 16
 					  || $update_id == 19
 					  || $update_id == 434
 					  || $update_id == 61
@@ -2173,35 +2172,45 @@ sub refresh_dis {
 					  || $update_id == 233 
 					  || $update_id == 194
 					  || $update_id == 195
-				)
-					{
+				))
+			{
+						dsay "\t(1)";
 						$target_date_string = date_math( -3, $target_date_string );
-					}
+					
 			}
 
 			elsif ($current_wd == 2 && ($update_id == 173)) {
+				dsay "\t(2)";
 				$target_date_string = date_math(-4, $target_date_string);
 			}
 			elsif ($update_id == 432 || $update_id == 433) {
+				dsay "\t(3)";
 				if ($current_wd == 2) {
+					dsay "\t\t(3.1)";
 					$target_date_string = date_math(-4, $target_date_string);
 				}
 				else {
+					dsay "\t\t(3.2)";
 					$target_date_string = date_math(-2, $target_date_string);
 				}
 			}
 			elsif ($update_id == 156)  {
+				dsay "\t(4)";
 				if ($current_wd == 1) {
+					dsay "\t\t(4.1)";
 					$target_date_string = date_math( -4, $target_date_string );
 				}
 				else{
+					dsay "\t\t(4.2)";
 					$target_date_string = date_math(-2, $target_date_string);
 				}
 			}
 			elsif ($prev_date) {
+				dsay "\t(5)";
 				$target_date_string = date_math( -1, $target_date_string );
 			}
 			else {
+				dsay "\t(6)";
 				$target_date_string = $target_date_string;
 			}
 

@@ -2172,15 +2172,18 @@ sub refresh_dis {
 					  || $update_id == 233 
 					  || $update_id == 194
 					  || $update_id == 195
+					  || $update_id == 101
+					  || $update_id == 69
+					  || $update_id == 70
 				))
 			{
 						dsay "\t(1)";
 						$target_date_string = date_math( -3, $target_date_string );
 					
 			}
-			elsif ($current_wd == 1 && ($update_id == 69 || $update_id == 70)) {
-					
-			}
+#			elsif ($current_wd == 1 && ($update_id == 69 || $update_id == 70)) {
+#					
+#			}
 			elsif ($current_wd == 2 && ($update_id == 173)) {
 				dsay "\t(2)";
 				$target_date_string = date_math(-4, $target_date_string);

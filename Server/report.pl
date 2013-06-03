@@ -516,14 +516,10 @@ sub compile_table {
 		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum,ops_id,comments
 		from [Update_History]
 		where
-		
 			sched_id = $sched_id
 			and feed_date <= '$dbdate'
 			$dis_filter
-			$filter
-		--	and late != 'S'
-		
-		
+			$filter		
 		order by hist_id desc
 	";
 	#warn $select_history if $update_id == 195	;
@@ -535,14 +531,7 @@ sub compile_table {
 		order by hist_id desc
 	";
 
-	 #warn $select_special and exit if $sched_id == -1;# if $update_id == 406;
-	 #exit;
-	 #	open LOG, '>>test.log';
-	 #	say LOG $select_history;
-	 #	close LOG;
-	 #
-	 #say $select_history if $sched_id == 271;
-		my $hist_query = $dbh_sched->prepare(
+	my $hist_query = $dbh_sched->prepare(
 						$sched_id == -1 ? $select_special : $select_history );
 		$hist_query->execute();
 
@@ -1129,8 +1118,7 @@ sub popup_cdb {
 	</table>
 	<table>
 		<tr>
-			<td>UPD:</td>
-			<td>not yet supported</td>
+			<td><a href=''>View UPD</a></td>
 		</tr>
 	</table>
 	</body>

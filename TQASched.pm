@@ -2168,7 +2168,6 @@ sub refresh_dis {
 					  || $update_id == 19
 					  || $update_id == 434
 					  || $update_id == 61
-					  || $update_id == 362
 					  || $update_id == 233 
 					  || $update_id == 194
 					  || $update_id == 195

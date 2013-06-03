@@ -495,6 +495,7 @@ sub compile_table {
 				select top 1 seq_num from update_history
 				where 
 				sched_id = $sched_id
+				and feed_date >= '$last_week_date'
 				order by seq_num desc
 				)
 				 " 

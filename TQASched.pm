@@ -2183,7 +2183,7 @@ sub refresh_dis {
 #			elsif ($current_wd == 1 && ($update_id == 69 || $update_id == 70)) {
 #					
 #			}
-			elsif ($current_wd == 2 && ($update_id == 173)) {
+			elsif ($current_wd == 2 && ($update_id == 173 || $update_id == 156)) {
 				dsay "\t(2)";
 				$target_date_string = date_math(-4, $target_date_string);
 			}

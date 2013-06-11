@@ -488,6 +488,7 @@ sub compile_table {
 		#		}
 
 		my $last_week_date = date_math( -4, $dbdate );
+		my $next_week_date = date_math( 4, $dbdate );
 		my $dis_filter = '';
 		#warn $last_week_date;
 		if ( !$is_legacy ) {
@@ -496,6 +497,7 @@ sub compile_table {
 				where 
 				sched_id = $sched_id
 				and feed_date >= '$last_week_date'
+				and feed_date < '$next_week_date'
 				order by seq_num desc
 				)
 				 " 

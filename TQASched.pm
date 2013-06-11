@@ -2093,9 +2093,6 @@ sub refresh_dis {
 
 			if ( $feed_id =~ m/fiejv|rdc/i ) {
 				dsay "$name: skipping";
-
-	# get earliest FIEJV feed that hasn't been received, assume it is this one
-	# skip for debugging purposes now
 				next;
 			}
 
@@ -2180,10 +2177,11 @@ sub refresh_dis {
 						$target_date_string = date_math( -3, $target_date_string );
 					
 			}
-#			elsif ($current_wd == 1 && ($update_id == 69 || $update_id == 70)) {
-#					
-#			}
-			elsif ($current_wd == 2 && ($update_id == 173 || $update_id == 156)) {
+			elsif ($current_wd == 1 && ($update_id == 404)) {
+					dsay "\t(1.5)";
+						$target_date_string = date_math( -2, $target_date_string );
+			}
+			elsif ($current_wd == 2 && ($update_id == 156)) {
 				dsay "\t(2)";
 				$target_date_string = date_math(-4, $target_date_string);
 			}

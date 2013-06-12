@@ -10,6 +10,8 @@ use strict;
 use feature qw(say switch);
 use Time::Local qw(timegm);
 use Net::FTP;
+use Win32::Process;
+use Win32;
 use File::Copy;
 
 #use Data::Dumper;
@@ -30,10 +32,15 @@ my ( $headerdate, $headertime, $dbdate ) = calc_datetime();
 
 
 my $target_trans = $cfg->target_trans;
+my $target_upd = $cfg->target_upd;
 if ($target_trans) {
 	# TODO enable FTP download upon moving to a newer server
 	#popup_ftp($target_trans);
 	popup_cdb($target_trans);
+	exit;
+}
+elsif ($target_upd) {
+	host_upd($target_upd);
 	exit;
 }
 
@@ -585,7 +592,9 @@ sub compile_table {
 			$jsa_open = "<a href='javascript:;' onClick=\"window.open('?target_trans=$transnum', 'Transaction $transnum', 'scrollbars=yes,width=500,height=925');\">";
 			$jsa_close = '</a>';
 		}
-
+		if ($update !~ /N/) {
+			$update = "<a href='javascript:;' onClick=\"window.open('?target_upd=$update', 'UPD $update', 'scrollbars=yes,width=500,height=925');\">$update</a>";
+		}
 		$seq_num    ||= 'N/A';
 		$transnum   ||= 'N/A';
 		$recvd_time ||= 'N/A';
@@ -1124,22 +1133,19 @@ sub popup_cdb {
 #	
 #	$dbh_cdb->selectall_arrayref();
 	print "
-	</table>
 	<table>
 		<tr>
-			<td><a href='temp.upd' target='_blank'>Get UPD</a></td>
+			<td ><a href='temp.upd' target='_blank'>Get UPD -> $upd</a></td>
 		</tr>
+	</table>
 	</table>
 	</body>
 	</html>
 	";
 	
-	use Win32::Process;
-	use Win32;
 	
-	sub ErrorReport{
-        print Win32::FormatMessage( Win32::GetLastError() );
-    }
+	
+
     
     my $ProcessObj;
     Win32::Process::Create($ProcessObj,
@@ -1153,6 +1159,46 @@ sub popup_cdb {
 	#exec('perl', 'select_upd.pl', "--xupd=$upd");
 }
 
+
+
+sub host_upd {
+	my ($upd) = @_;
+	
+		
+	print "HTTP/1.0 200 OK\r\n";
+	print "Content-type: text/html\n\n";
+	
+	print "
+	<html>
+		<head>
+			<title>Downloading UPD...</title>
+			<meta http-equiv='refresh' content='300' >
+			<link rel='stylesheet' type='text/css' href='styles.css' />
+		</head>	
+		<body>
+	";
+	
+	my $ProcessObj;
+    Win32::Process::Create($ProcessObj,
+    							$cfg->perl_path,
+                                'perl '.$cfg->upd_path." --xupd=$upd",
+                                0,
+                                NORMAL_PRIORITY_CLASS,
+                                ".")|| die ErrorReport();
+   print "<p style='text-align:center'>
+   		<div style='padding:20'>
+   		<a href='temp.upd' target='_blank'>UPD Ready -> Click to View/Download</a>
+   		</div>
+   		</p>
+   
+   </body></html>";
+	
+}
+
+
+sub ErrorReport{
+	print Win32::FormatMessage( Win32::GetLastError() );
+}
 # popup upd sourced from FTP download
 sub popup_ftp {
 	my ($t_transnum) = @_;

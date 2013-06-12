@@ -228,6 +228,11 @@ sub define_defaults {
 			ALIAS => 'upd_path'
 		},
 
+		report_target_upd => {
+			DEFAULT => '',
+			ALIAS => 'target_upd',
+		},
+
 		#-------------------------------------------------------------------
 		#  all CGI variables for the report follow:
 		#-------------------------------------------------------------------

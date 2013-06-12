@@ -393,8 +393,8 @@ sub compile_table {
 	  on d.update_id = u.update_id 
 	  where 
 	  --weekday = $wd
-      d.feed_id NOT LIKE 'FIEJV%'
-      and d.feed_id NOT LIKE 'RDC%'
+      --d.feed_id NOT LIKE 'FIEJV%'
+       d.feed_id NOT LIKE 'RDC%'
       and us.enabled = 1
       $filter
       order by sched_epoch asc, name asc
@@ -413,7 +413,7 @@ sub compile_table {
 			on
 			d.update_id = us.update_id
 		and u.update_id = d.update_id
-		and d.feed_id NOT LIKE 'FIEJV%'
+		--and d.feed_id NOT LIKE 'FIEJV%'
       	and d.feed_id NOT LIKE 'RDC%'
 		where
 		--and u.is_legacy = 0

@@ -1989,6 +1989,78 @@ sub update_scheduling {
 	my $sth_update = $dbh_sched->prepare($update_sched_query);
 }
 
+# clear all history for supplied update(s)
+sub delete_history {
+	my @updates = @_;
+	my $delete_query = "
+			delete from update_history where update_id = ?
+	";
+	check_handles();
+	my $sth = $dbh_sched->prepare($delete_query);
+	for my $update (@updates) {
+		print "deleting history for $update\n";
+		$sth->execute($update);
+	}
+}
+
+# return the seqnum (if assigned) of specified build number for fiejv feed
+sub fiejv_seq {
+	my ($buildnum, $feed_date, $feed_id) = @_;
+	
+	check_handles();
+	
+	my $select_query = "
+				select seqnum from
+				[TQALic].dbo.[PackageQueue] 
+				with (NOLOCK)
+				where TaskReference LIKE '%$feed_id%'
+				and status != 0
+				and feeddate = '$feed_date'
+				order by seqnum asc
+	";
+	my $res_aref = $dbh_prod1->selectall_arrayref($select_query);
+	
+	my @seqnums = ();
+	for my $row_aref (@$res_aref) {
+		my ($seqnum) = @$row_aref;
+		push @seqnums, $seqnum;
+	}
+	if ($buildnum <= scalar @seqnums) {
+		return $seqnums[$buildnum - 1];
+	}
+	else {
+		return 0;
+	}
+	
+	
+}
+
+# get the last seqnum for a feed_id/date pair 
+sub last_seqnum {
+	my ($update_id, $feed_id, $feed_date) = @_;
+	
+	my $get_seqnum = "select top 1 seq_num from update_history
+	where update_id = $update_id
+	order by seq_num desc";
+	
+	my ($seqnum) = $dbh_sched->selectrow_array($get_seqnum);
+	
+	unless ($seqnum) {
+		$feed_date = date_math(-1, $feed_date);
+		my $query =	"select top 1 SeqNum 
+				from [TQALic].dbo.[PackageQueue] 
+				with (NOLOCK)
+				where TaskReference LIKE '%$feed_id%'
+				and status != 0
+				and feeddate = '$feed_date'
+				order by seqnum desc
+				";
+		say $query;
+		($seqnum) = $dbh_prod1->selectrow_array($query);
+	}
+	return $seqnum;
+}
+
 # check if update_id is stored for current sched_id and date
 sub is_stored {
 	my ( $sched_id, $date_string ) = @_;
@@ -2065,7 +2137,6 @@ sub refresh_dis {
 		$filter_sched
 		";
 
-		#dsay $expected;
 		my $sth_expected = $dbh_sched->prepare($expected);
 		$sth_expected->execute();
 		my $updates_aref = $sth_expected->fetchall_arrayref();
@@ -2091,7 +2162,7 @@ sub refresh_dis {
 			# handle annoying FIEJV feeds not being enumerated
 			# TODO fix special case for FIEJV
 
-			if ( $feed_id =~ m/fiejv|rdc/i ) {
+			if ( $feed_id =~ m/rdc/i ) {
 				dsay "$name: skipping";
 				next;
 			}
@@ -2225,7 +2296,23 @@ sub refresh_dis {
 			dsay $sched_feed_date;
 			$feed_date_filter = "and feeddate = '$sched_feed_date'";
 
-
+			# FIEJV fix
+			# retrieve next seqnum expected
+			if ($feed_id =~ m/fiejv/i) {
+				my $seq_num = fiejv_seq($build_num, $sched_feed_date, $feed_id);
+				if ($seq_num) {
+					say "\tfiejv seqnum found: $seq_num";
+					$feed_date_filter .= "\nand seqnum = $seq_num";
+				}
+				else {
+					say "\tfiejv not yet recvd";
+					next;
+				}
+			
+			}
+			else {
+				$feed_date_filter .= "\norder by SeqNum desc";
+			}
 
 # double duty query
 # gets all needed info for non-enumerated feeds
@@ -2243,12 +2330,11 @@ sub refresh_dis {
 			from [TQALic].dbo.[PackageQueue] 
 			with (NOLOCK)
 			where TaskReference LIKE '%$feed_id%'
-			$feed_date_filter
 			and status != 0
-			order by SeqNum desc
+			$feed_date_filter
 		";
 
-
+			#say $transactions;
 			(  $status,  $exec_end,  $fd,         $fn,
 			   $sender,  $trans_num, $build_time, $feed_date,
 			   $seq_num, $filesize
@@ -2295,7 +2381,8 @@ sub refresh_dis {
 			# check the last execution time of that build
 			# in the correct DIS server
 			# First Call #? is not really an enumerated feed
-			if ( $build_num && $name !~ m/first call/i ) {
+			if ( $build_num && $name !~ m/first call|fixed income/i ) {
+		
 				say "\thandling enum: $build_num";
 
 				# RDC TR Business Classifications has no build numbers

@@ -74,6 +74,10 @@ sub handle_request {
 			}
 			return;
 		}
+		elsif ( $cgi->path_info =~ m/\.(upd)/i ) {
+			$self->serve_static( $cgi, 'Files' );
+			return;
+		}		
 
 		write_log( { logfile => $cfg->server_log,
 					 type    => 'INFO',

@@ -219,6 +219,14 @@ sub define_defaults {
 		report_view_debug => { DEFAULT => 0,
 							   ALIAS   => 'report_debug',
 		},
+		report_perl_path => {
+			DEFAULT => '',
+			ALIAS => 'perl_path'
+		},
+		report_upd_path => {
+			DEFAULT => '',
+			ALIAS => 'upd_path'
+		},
 
 		#-------------------------------------------------------------------
 		#  all CGI variables for the report follow:
@@ -266,7 +274,17 @@ sub define_defaults {
 							  ARGS    => ':s',
 							  ALIAS   => 'show_cols',
 		},
-
+		report_table_name => {
+			DEFAULT => '',
+			ARGS=> ':s',
+			ALIAS => 'xtable',
+		},
+		report_upd => {
+			DEFAULT => '',
+			ARGS => ':s',
+			ALIAS => 'xupd',
+		},
+		
 		# optional window title, useful for side-by-side comparisons
 		report_title => { DEFAULT => '',
 						  ALIAS   => 'title',

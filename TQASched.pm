@@ -82,7 +82,7 @@ if ( my @subscript = caller ) {
 	# otherwise - loud and proud
 	say
 		'imported TQASched module for your very own personal amusement! enjoy, pretty boy.'
-		unless $subscript[1] =~ m/report/;
+		unless $subscript[1] =~ m/report|select_upd/;
 	return 1;
 }
 

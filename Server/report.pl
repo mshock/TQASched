@@ -1096,8 +1096,16 @@ sub popup_cdb {
 	";
 	
 	my $count = 0;
+	my $upd;
 	for my $header (@pq_headers) {
 		my $result = $query_results[$count++];
+		if ($header =~ 'FileDate') {
+			my ($y, $m, $d) = TQASched::parse_filedate($result);
+			$upd = "$y$m$d";
+		}
+		elsif ($header =~ 'FileNum') {
+			$upd .= "-$result";
+		}
 		print "
 			<tr>
 				<th>
@@ -1115,17 +1123,34 @@ sub popup_cdb {
 #	my $cdb_query = "select * from changedb_current"
 #	
 #	$dbh_cdb->selectall_arrayref();
-	
 	print "
 	</table>
 	<table>
 		<tr>
-			<td><a href=''>View UPD</a></td>
+			<td><a href='temp.upd' target='_blank'>Get UPD</a></td>
 		</tr>
 	</table>
 	</body>
 	</html>
-	";	
+	";
+	
+	use Win32::Process;
+	use Win32;
+	
+	sub ErrorReport{
+        print Win32::FormatMessage( Win32::GetLastError() );
+    }
+    
+    my $ProcessObj;
+    Win32::Process::Create($ProcessObj,
+    							$cfg->perl_path,
+                                'perl '.$cfg->upd_path." --xupd=$upd",
+                                0,
+                                DETACHED_PROCESS,
+                                ".")|| die ErrorReport();
+	
+	#system 1, "perl select_upd.pl --xupd=$upd";
+	#exec('perl', 'select_upd.pl', "--xupd=$upd");
 }
 
 # popup upd sourced from FTP download

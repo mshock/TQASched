@@ -68,7 +68,7 @@ for my $tname (@tables) {
 
 	my $headercode = $codes{$tname};
 	
-	say $tmp_fh "\n$tname\t->\t[$headercode]"; 
+	say $tmp_fh "\n[$headercode]\t->\t$tname"; 
 	
 	
 	while (my @upd_row = $cdb_sth->fetchrow_array()) {

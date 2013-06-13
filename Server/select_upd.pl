@@ -20,6 +20,7 @@ my $filename = '';
 
 my @tables = ();
 my @errors = ();
+my %codes;
 my ($dbh_cdb ) = refresh_handles(  'change' );
 my $tmp_fh;
 open $tmp_fh , '>', 'Files/temp.upd' or die $!;
@@ -34,6 +35,11 @@ else {
 		and filenum = $fn");
 	for my $tname_aref (@$tnames_aref) {
 		my ($tname, $status) =  @$tname_aref;
+		
+		my ($headercode) = $dbh_cdb->selectrow_array("
+			select updcode from ChangeDB_current.dbo.tableinfo 
+			where name = UPPER('$tname')");
+		$codes{$tname} = $headercode;
 		if (defined $status && $status == 0) {
 			push @tables, $tname;
 		}		
@@ -60,8 +66,9 @@ for my $tname (@tables) {
 	$cdb_sth->{'LongReadLen'} = 20000;
 	$cdb_sth->execute();
 
+	my $headercode = $codes{$tname};
 	
-	say $tmp_fh "\n[$tname]"; 
+	say $tmp_fh "\n$tname\t->\t[$headercode]"; 
 	
 	
 	while (my @upd_row = $cdb_sth->fetchrow_array()) {

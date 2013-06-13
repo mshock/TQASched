@@ -589,11 +589,11 @@ sub compile_table {
 
 		my ($jsa_open, $jsa_close)= ('')x2;
 		if ($transnum) {
-			$jsa_open = "<a href='javascript:;' onClick=\"window.open('?target_trans=$transnum', 'Transaction $transnum', 'scrollbars=yes,width=500,height=925');\">";
+			$jsa_open = "<a href='#' onClick=\"window.open('?target_trans=$transnum', 'Transaction:$transnum','_blank', 'toolbar=no,scrollbars=yes,width=500,height=925,status=no,scrollbars=no,resize=no');return false\">";
 			$jsa_close = '</a>';
 		}
 		if ($update !~ /N/) {
-			$update = "<a href='javascript:;' onClick=\"window.open('?target_upd=$update', 'UPD $update', 'scrollbars=yes,width=500,height=925');\">$update</a>";
+			$update = "<a href='#' onClick=\"window.open('?target_upd=$update', 'UPD:$update','_blank', 'toolbar=no,scrollbars=yes,width=500,height=925,status=no,scrollbars=no,resize=no');return false\">$update</a>";
 		}
 		$seq_num    ||= 'N/A';
 		$transnum   ||= 'N/A';
@@ -1190,9 +1190,8 @@ sub host_upd {
    		<a href='temp.upd' target='_blank'>UPD Ready -> Click to View/Download</a>
    		</div>
    		</p>
-   
    </body></html>";
-	
+
 }
 
 

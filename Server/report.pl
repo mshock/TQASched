@@ -117,14 +117,15 @@ print "Content-type: text/html\n\n";
 #}
 #else {
 # header time shows current when in a different date
-$post_date =~ m/(\d{4})(\d{2})(\d{2})/;
-$headertime = "[$headerdate $headertime]";
-$headerdate = "$2/$3/$1";
-
-my $tmp_dbdate;
-( $tmp_dbdate, $upd_num ) = ( $post_date =~ m/(\d+)-(\d+)/ );
-if ($tmp_dbdate) {
-	$dbdate = $tmp_dbdate;
+if ($post_date =~ m/(\d{4})(\d{2})(\d{2})/) {
+	$headertime = "[$headerdate $headertime]";
+	$headerdate = "$2/$3/$1";
+	
+	my $tmp_dbdate;
+	( $tmp_dbdate, $upd_num ) = ( $post_date =~ m/(\d+)-(\d+)/ );
+	if ($tmp_dbdate) {
+		$dbdate = $tmp_dbdate;
+	}
 }
 #}
 

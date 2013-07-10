@@ -238,7 +238,7 @@ sub define_defaults {
 		#-------------------------------------------------------------------
 		# target date
 		report_date => { DEFAULT => '',
-						 ARGS    => ':i',
+						 ARGS    => ':s',
 						 ALIAS   => 'date',
 		},
 

@@ -105,30 +105,34 @@ print "Content-type: text/html\n\n";
 ######################################################
 
 # if date passed through POST, update header variables
-unless ( $post_date =~ m/(\d{4})(\d{2})(\d{2})/ ) {
-	if ( defined $post_date ) {
-		write_log( { logfile => $cfg->report_log,
-					 type    => 'INFO',
-					 msg     => "bad POST value: $post_date\n"
-				   }
-		);
-	}
+#unless ( $post_date =~ m/(\d{4})(\d{2})(\d{2})/ ) {
+#	die "wtf";
+#	if ( defined $post_date ) {
+#		write_log( { logfile => $cfg->report_log,
+#					 type    => 'INFO',
+#					 msg     => "bad POST value: $post_date\n"
+#				   }
+#		);
+#	}
+#}
+#else {
+# header time shows current when in a different date
+$post_date =~ m/(\d{4})(\d{2})(\d{2})/;
+$headertime = "[$headerdate $headertime]";
+$headerdate = "$2/$3/$1";
+
+my $tmp_dbdate;
+( $tmp_dbdate, $upd_num ) = ( $post_date =~ m/(\d+)-(\d+)/ );
+if ($tmp_dbdate) {
+	$dbdate = $tmp_dbdate;
 }
-else {
-
-	# header time shows current when in a different date
-
-	$headertime = "[$headerdate $headertime]";
-	$headerdate = "$2/$3/$1";
-
-	( $dbdate, $upd_num ) = ( $post_date =~ m/(\d+)(?:-(\d+))?/ );
-}
+#}
 
 print_header();
 
 print_thead();
 
-compile_table();
+$upd_checked ? compile_upd_table() : compile_table();
 
 #print_table($rows_ref);
 
@@ -263,6 +267,9 @@ sub print_thead {
 			;
 	}
 
+	my $date_field = $upd_checked ? $post_date : $dbdate;
+
+
 	say "
 <form method='GET'>
 	
@@ -278,7 +285,7 @@ sub print_thead {
 				<th colspan='$num_headers'>
 					<input type='checkbox' name='search_upd' value='true' title='search by UPD filedate[-filenum]' id='upd_search' $upd_checked/>
 						<label for='upd_search'>UPD</label>
-					<input type='text' name='date' value='$dbdate' />
+					<input type='text' name='date' value='$date_field' />
 					<input type='text' name='search' value='$prev_search' title='search' id='search_box'/>
 						<label for='search_box'>search by</label>
 				<select name='search_type'>
@@ -358,6 +365,118 @@ sub calc_adjacent {
 	);
 }
 
+sub compile_upd_table {
+	
+	say "<tbody>";
+
+	my $filter = "filedate = $dbdate and filenum = $upd_num";
+
+	my $select_upd_query = "
+		select uh.hist_id, uh.hist_epoch, uh.filedate, uh.filenum, uh.timestamp, uh.late, uh.feed_date, uh.seq_num, uh.transnum,uh.ops_id,uh.comments, us.sched_epoch, u.prev_date, u.is_legacy, u.name, u.update_id, ud.feed_id, u.priority
+		from [Update_History] uh, update_schedule us, updates u, update_dis ud
+		where
+		$filter
+		and uh.update_id = us.update_id
+		and uh.sched_id = us.sched_id
+		and u.update_id = uh.update_id
+		and ud.update_id = u.update_id
+		order by hist_id desc";
+
+	my $hist_aref = $dbh_sched->selectall_arrayref($select_upd_query);
+	my $row_count = 0;
+	my $border_prev;
+	my %display_rows;
+	for my $hist_row_aref (@$hist_aref) {
+		my ( $hist_id,  $hist_offset, $filedate,  $filenum,
+			 $hist_ts,  $late,        $feed_date, $seq_num,
+			 $transnum, $ops_id,      $comments, $sched_offset, 
+			 $prev_date, $is_legacy, $name, $update_id, $feed_id, $priority
+		) = @$hist_row_aref;
+		
+		my ( $row_class, $status, $sched_time, $recvd_time, $daemon_ts,
+			 $update, $feed_date_pretty )
+			= row_info( $row_count++,    $late,        $hist_id,
+						$sched_offset, $hist_offset, $hist_ts,
+						$filedate,     $filenum,     $feed_date,
+						$prev_date,    $is_legacy
+			);
+		my $border_class1 = '';
+		my $border_class2 = '';
+		( $border_class1, $border_class2, $border_prev )
+			= format_border( $row_class, $border_prev );
+			
+		my $tr_title = get_title( $row_class, $ops_id, $comments );
+		my $extra_classes = '';
+
+		my ($jsa_open, $jsa_close)= ('')x2;
+		if ($transnum) {
+			$jsa_open = "<a href='#' onClick=\"window.open('?target_trans=$transnum', 'Transaction:$transnum','_blank', 'toolbar=no,scrollbars=yes,width=500,height=925,status=no,scrollbars=no,resize=no');return false\">";
+			$jsa_close = '</a>';
+		}
+		if ($update !~ /N/) {
+			$update = "<a href='#' onClick=\"window.open('?target_upd=$update', 'UPD:$update','_blank', 'toolbar=no,scrollbars=yes,width=500,height=925,status=no,scrollbars=no,resize=no');return false\">$update</a>";
+		}
+		$seq_num    ||= 'N/A';
+		$transnum   ||= 'N/A';
+		$recvd_time ||= 'N/A';
+		
+		
+		my $update_row = sprintf( "
+		<tr $tr_title class='$border_class1 $border_class2 $row_class $extra_classes'>
+			<td>$jsa_open%s$jsa_close\t%s</td>
+			<td>%s</td>
+			%s
+			<td>%s</td>
+			<td>%s</td>
+			%s
+			<td>%s</td>
+			%s
+			%s
+			%s
+		</tr>
+		",
+			$name, ( $debug_mode ? "[$update_id]" : '' ),
+			( $feed_id ? $feed_id : 'N/A' ),
+			( $show_cols || $debug_mode ? "<td>$priority</td>" : '' ),
+			$sched_time, $recvd_time,
+			( $show_cols || $debug_mode ? "<td>$feed_date_pretty</td>" : '' ),
+			$update,
+			( $show_cols || $debug_mode ? "<td>$transnum</td>" : '' ),
+			( $show_cols || $debug_mode ? "<td>$seq_num</td>"  : '' ),
+			( $debug_mode ? "<td>$daemon_ts</td>" : '' ) );
+
+		#say "inserting $status, $sched_id";
+		if ($float_status) {
+			push @{ $display_rows{$status} }, $update_row;
+		}
+		else {
+			say $update_row;
+		}
+	}
+	return unless $float_status;
+
+	my @stati = qw(late wait laterecv recv);
+	for my $status_key (@stati) {
+		$row_count = 0;
+		for my $line ( @{ $display_rows{$status_key} } ) {
+			my $row_parity = $row_count % 2;
+			if ($row_parity) {
+				$line =~ s/_even/_odd/;
+			}
+			else {
+				$line =~ s/_odd/_even/;
+			}
+
+			say $line;
+			$row_count++;
+		}
+
+	}
+	
+	
+	
+}
+
 sub compile_table {
 
 	say "<tbody>";
@@ -385,8 +504,8 @@ sub compile_table {
 			$filter .= " and us.sched_epoch = $sched_offset";
 		}
 	}
-	my $next_wd = shift_wd( $wd, 1 );
-	my $filter_sched = " and ( us.weekday = $wd )";
+	my $next_wd =  shift_wd( $wd, 1 );
+	my $filter_sched = $upd_checked ? '' : " and ( us.weekday = $wd )";
 
 	my $select_schedule1 = "
 	  select distinct us.sched_id, us.update_id, us.sched_epoch, u.name, u.is_legacy, d.feed_id, u.prev_date, u.priority
@@ -455,13 +574,7 @@ sub compile_table {
 	if ( $prev_search && $search_type eq 'FEED_DATE' ) {
 		$filter .= " and feed_date = '$prev_search'";
 	}
-	if ($upd_checked) {
-		$filter = "and filedate = $dbdate";
-		if ($upd_num) {
-			$filter .= " and filenum = $upd_num";
-		}
-	}
-
+	
 	#warn $select_history and die;
 	#say 'executing sched query';
 	my $sched_aref    = $dbh_sched->selectall_arrayref($select_schedule2);
@@ -521,6 +634,8 @@ sub compile_table {
 			$dis_filter = "and feed_date > '$last_week_date'";
 				#= "--and (abs(datediff(dd, '$dbdate', cast(cast(filedate as varchar(8)) as datetime))) < 7 or filedate is null";
 		}
+		
+	
 		my $select_history = "
 		select top 1 hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum,ops_id,comments
 		from [Update_History]
@@ -531,7 +646,6 @@ sub compile_table {
 			$filter		
 		order by hist_id desc
 	";
-	#warn $select_history if $update_id == 195	;
 		my $select_special = "
 		select hist_id, hist_epoch, filedate, filenum, timestamp, late, feed_date, seq_num, transnum,ops_id,comments 
 		from update_history

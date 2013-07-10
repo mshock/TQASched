@@ -268,7 +268,7 @@ sub print_thead {
 			;
 	}
 
-	my $date_field = $upd_checked ? $post_date : $dbdate;
+	my $date_field = $post_date ? $post_date : $dbdate;
 
 
 	say "
